@@ -1,0 +1,15 @@
+name = "ikea-second-hand-alerts"
+main = "src/index.js"
+compatibility_date = "2025-01-15"
+compatibility_flags = ["nodejs_compat"]
+
+[[kv_namespaces]]
+binding = "SUBSCRIPTIONS"
+id = "fae9b1df60cc4700b3683d92d28284df"
+
+[vars]
+IKEA_API_BASE = "https://web-api.ikea.com/circular/circular-asis"
+STORES_JSON = "[{\"id\":\"188\",\"label\":\"Warszawa Janki\"},{\"id\":\"203\",\"label\":\"Gdańsk\"},{\"id\":\"204\",\"label\":\"Kraków\"},{\"id\":\"205\",\"label\":\"Poznań\"},{\"id\":\"294\",\"label\":\"Wrocław\"},{\"id\":\"306\",\"label\":\"Katowice\"},{\"id\":\"307\",\"label\":\"Warszawa Targówek\"},{\"id\":\"311\",\"label\":\"Lublin\"},{\"id\":\"329\",\"label\":\"Łódź\"},{\"id\":\"429\",\"label\":\"Bydgoszcz\"}]"
+
+[triggers]
+crons = ["0 * * * *"]
