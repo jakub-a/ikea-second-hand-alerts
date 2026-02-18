@@ -54,6 +54,105 @@ function base64UrlDecode(str) {
   return bytes;
 }
 
+function uint16be(value) {
+  return new Uint8Array([(value >> 8) & 0xff, value & 0xff]);
+}
+
+function concatBytes(...arrays) {
+  const total = arrays.reduce((sum, arr) => sum + arr.length, 0);
+  const output = new Uint8Array(total);
+  let offset = 0;
+  arrays.forEach((arr) => {
+    output.set(arr, offset);
+    offset += arr.length;
+  });
+  return output;
+}
+
+async function hkdf(salt, ikm, info, length) {
+  const key = await crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: 'HKDF',
+      hash: 'SHA-256',
+      salt,
+      info
+    },
+    key,
+    length * 8
+  );
+  return new Uint8Array(bits);
+}
+
+async function encryptPayload(subscription, payload, vapidPublicKey) {
+  const clientPublicKey = base64UrlDecode(subscription.keys.p256dh);
+  const authSecret = base64UrlDecode(subscription.keys.auth);
+
+  const serverKeyPair = await crypto.subtle.generateKey(
+    { name: 'ECDH', namedCurve: 'P-256' },
+    true,
+    ['deriveBits']
+  );
+  const serverPublicKeyRaw = new Uint8Array(await crypto.subtle.exportKey('raw', serverKeyPair.publicKey));
+
+  const clientPublicKeyCrypto = await crypto.subtle.importKey(
+    'raw',
+    clientPublicKey,
+    { name: 'ECDH', namedCurve: 'P-256' },
+    false,
+    []
+  );
+
+  const sharedSecret = new Uint8Array(
+    await crypto.subtle.deriveBits(
+      { name: 'ECDH', public: clientPublicKeyCrypto },
+      serverKeyPair.privateKey,
+      256
+    )
+  );
+
+  const info = concatBytes(
+    encoder.encode('WebPush: info\0'),
+    clientPublicKey,
+    serverPublicKeyRaw
+  );
+
+  const prk = await hkdf(authSecret, sharedSecret, info, 32);
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+
+  const context = concatBytes(
+    encoder.encode('P-256'),
+    new Uint8Array([0x00]),
+    uint16be(clientPublicKey.length),
+    clientPublicKey,
+    uint16be(serverPublicKeyRaw.length),
+    serverPublicKeyRaw
+  );
+
+  const cekInfo = concatBytes(encoder.encode('Content-Encoding: aes128gcm\0'), context);
+  const nonceInfo = concatBytes(encoder.encode('Content-Encoding: nonce\0'), context);
+
+  const contentEncryptionKey = await hkdf(salt, prk, cekInfo, 16);
+  const nonce = await hkdf(salt, prk, nonceInfo, 12);
+
+  const cek = await crypto.subtle.importKey('raw', contentEncryptionKey, { name: 'AES-GCM' }, false, ['encrypt']);
+
+  const payloadBytes = encoder.encode(payload);
+  const pad = new Uint8Array([0x00, 0x00]);
+  const plaintext = concatBytes(pad, payloadBytes);
+
+  const ciphertext = new Uint8Array(
+    await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, cek, plaintext)
+  );
+
+  return {
+    ciphertext,
+    salt,
+    serverPublicKey: serverPublicKeyRaw,
+    vapidPublicKey
+  };
+}
+
 async function createVapidJwt(audience, publicKey, privateKey) {
   const header = base64UrlEncode(encoder.encode(JSON.stringify({ typ: 'JWT', alg: 'ES256' })));
   const exp = Math.floor(Date.now() / 1000) + 12 * 60 * 60;
@@ -175,7 +274,7 @@ async function handleItems(request, env) {
 
 async function handleSubscribe(request, env) {
   const body = await request.json();
-  const { subscription, keywords, storeIds } = body || {};
+  const { subscription, keywords, storeIds, alerts } = body || {};
 
   if (!subscription?.endpoint || !storeIds || storeIds.length === 0) {
     return json({ error: 'Missing subscription or storeId' }, { status: 400, headers: corsHeaders });
@@ -187,6 +286,7 @@ async function handleSubscribe(request, env) {
     subscription,
     keywords: Array.isArray(keywords) ? keywords : [],
     storeIds: Array.isArray(storeIds) ? storeIds : [storeIds],
+    alerts: Array.isArray(alerts) ? alerts : [],
     lastSeenIds: []
   };
 
@@ -213,14 +313,88 @@ async function handleTestNotification(request, env) {
   const raw = await env.SUBSCRIPTIONS.get(`sub:${key}`);
   if (!raw) return json({ error: 'Subscription not found' }, { status: 404, headers: corsHeaders });
 
-  const record = JSON.parse(raw);
-  await sendPush(record.subscription, {
+  const payload = {
     title: 'IKEA Second-Hand Test',
     body: 'This is a test notification.',
-    url: '/'
-  }, env);
+    url: '/?test=1',
+    alertId: null,
+    newCount: 0
+  };
 
+  await enqueueNotification(env, key, payload);
+  const record = JSON.parse(raw);
+  const result = await sendPush(record.subscription, null, env);
+
+  return json({ ok: true, status: result.status }, { headers: corsHeaders });
+}
+
+async function handleNextNotification(request, env) {
+  const { searchParams } = new URL(request.url);
+  const endpoint = searchParams.get('endpoint');
+  if (!endpoint) return json({ error: 'Missing endpoint' }, { status: 400, headers: corsHeaders });
+
+  const key = await hashEndpoint(endpoint);
+  const raw = await env.SUBSCRIPTIONS.get(`notif:${key}`);
+  if (!raw) return json({ ok: false }, { status: 404, headers: corsHeaders });
+
+  const parsed = JSON.parse(raw);
+  const queue = Array.isArray(parsed?.queue) ? parsed.queue : [parsed];
+  if (queue.length === 0) {
+    await env.SUBSCRIPTIONS.delete(`notif:${key}`);
+    return json({ ok: false }, { status: 404, headers: corsHeaders });
+  }
+  const payload = queue.shift();
+  if (queue.length === 0) {
+    await env.SUBSCRIPTIONS.delete(`notif:${key}`);
+  } else {
+    await env.SUBSCRIPTIONS.put(`notif:${key}`, JSON.stringify({ queue }), { expirationTtl: 300 });
+  }
+  return json({ ok: true, payload }, { headers: corsHeaders });
+}
+
+async function handleAlerts(request, env) {
+  const body = await request.json();
+  const { endpoint, alerts } = body || {};
+  if (!endpoint) return json({ error: 'Missing endpoint' }, { status: 400, headers: corsHeaders });
+
+  const key = await hashEndpoint(endpoint);
+  const raw = await env.SUBSCRIPTIONS.get(`sub:${key}`);
+  if (!raw) return json({ error: 'Subscription not found' }, { status: 404, headers: corsHeaders });
+
+  const record = JSON.parse(raw);
+  record.alerts = Array.isArray(alerts) ? alerts : [];
+  await env.SUBSCRIPTIONS.put(`sub:${key}`, JSON.stringify(record));
   return json({ ok: true }, { headers: corsHeaders });
+}
+
+async function handleTestAlert(request, env) {
+  const body = await request.json();
+  const { endpoint, alert } = body || {};
+  if (!endpoint || !alert) return json({ error: 'Missing endpoint or alert' }, { status: 400, headers: corsHeaders });
+
+  const key = await hashEndpoint(endpoint);
+  const alertId = alert.id || null;
+  const alertKeywords = Array.isArray(alert.keywords) ? alert.keywords : [];
+  const alertStores = Array.isArray(alert.storeIds) ? alert.storeIds : [];
+  const payload = {
+    title: alert.name || 'IKEA Alert Test',
+    body: `Test alert: ${alertKeywords.join(', ')}`,
+    url: (() => {
+      const params = new URLSearchParams();
+      params.set('tab', 'alerts');
+      if (alertId) params.set('alertId', alertId);
+      if (alertStores.length) params.set('stores', alertStores.join(','));
+      if (alertKeywords.length) params.set('keywords', alertKeywords.join(','));
+      const qs = params.toString();
+      return qs ? `/?${qs}` : '/';
+    })(),
+    alertId,
+    newCount: 0
+  };
+
+  await enqueueNotification(env, key, payload);
+  const result = await sendPush({ endpoint }, null, env);
+  return json({ ok: true, status: result.status }, { headers: corsHeaders });
 }
 
 async function sendPush(subscription, payload, env) {
@@ -229,25 +403,62 @@ async function sendPush(subscription, payload, env) {
 
   const audience = new URL(endpoint).origin;
   const jwt = await createVapidJwt(audience, env.VAPID_PUBLIC_KEY, env.VAPID_PRIVATE_KEY);
-
-  const headers = {
+  let headers = {
     TTL: '60',
     Authorization: `vapid t=${jwt}, k=${env.VAPID_PUBLIC_KEY}`,
     'Crypto-Key': `p256ecdsa=${env.VAPID_PUBLIC_KEY}`
   };
+  let body;
+
+  if (payload) {
+    const payloadJson = JSON.stringify(payload);
+    const encrypted = await encryptPayload(subscription, payloadJson, env.VAPID_PUBLIC_KEY);
+    headers = {
+      ...headers,
+      'Crypto-Key': `dh=${base64UrlEncode(encrypted.serverPublicKey)}; p256ecdsa=${env.VAPID_PUBLIC_KEY}`,
+      Encryption: `salt=${base64UrlEncode(encrypted.salt)}; rs=4096`,
+      'Content-Encoding': 'aes128gcm',
+      'Content-Type': 'application/octet-stream'
+    };
+    body = encrypted.ciphertext;
+  }
 
   const res = await fetch(endpoint, {
     method: 'POST',
-    headers
+    headers,
+    body
   });
 
   if (!res.ok) {
     const textBody = await res.text();
     throw new Error(`Push failed: ${res.status} ${textBody}`);
   }
+
+  return { status: res.status };
 }
 
-async function processSubscriptions(env) {
+async function enqueueNotification(env, key, payload) {
+  const existing = await env.SUBSCRIPTIONS.get(`notif:${key}`);
+  if (!existing) {
+    await env.SUBSCRIPTIONS.put(`notif:${key}`, JSON.stringify({ queue: [payload] }), { expirationTtl: 300 });
+    return;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(existing);
+  } catch (err) {
+    parsed = null;
+  }
+  const queue = Array.isArray(parsed?.queue)
+    ? parsed.queue
+    : parsed
+      ? [parsed]
+      : [];
+  queue.push(payload);
+  await env.SUBSCRIPTIONS.put(`notif:${key}`, JSON.stringify({ queue }), { expirationTtl: 300 });
+}
+
+async function processSubscriptions(env, options = {}) {
   let cursor = undefined;
   do {
     const list = await env.SUBSCRIPTIONS.list({ prefix: 'sub:', cursor, limit: 1000 });
@@ -257,48 +468,81 @@ async function processSubscriptions(env) {
       const raw = await env.SUBSCRIPTIONS.get(key.name);
       if (!raw) continue;
       const record = JSON.parse(raw);
-      const combined = [];
-      for (const storeId of record.storeIds || []) {
+      const alerts = Array.isArray(record.alerts) && record.alerts.length > 0
+        ? record.alerts
+        : [
+            {
+              id: 'legacy',
+              name: 'Default alert',
+              keywords: record.keywords || [],
+              storeIds: record.storeIds || [],
+              active: true
+            }
+          ];
+
+      const activeAlerts = alerts.filter((alert) => alert.active);
+      const storeIds = [...new Set(activeAlerts.flatMap((alert) => alert.storeIds || []))];
+      const offersByStore = new Map();
+
+      for (const storeId of storeIds) {
         const payload = await fetchOffers({ storeIds: storeId }, env);
-        combined.push(...extractOffers(payload));
-      }
-      const offers = combined;
-
-      const matches = offers.filter((offer) => matchesKeywords(offer, record.keywords));
-      const seen = new Set(record.lastSeenIds || []);
-      const fresh = matches.filter((offer) => {
-        const id =
-          offer?.offers?.[0]?.id ||
-          offer?.offers?.[0]?.offerUuid ||
-          offer?.id ||
-          offer?.offerId ||
-          offer?.articleNumbers?.[0] ||
-          offer?.articleNumber;
-        if (!id) return false;
-        return !seen.has(id);
-      });
-
-      if (fresh.length > 0) {
-        const first = fresh[0];
-        const title = first?.title || first?.name || 'New IKEA listing';
-        const body = `Found ${fresh.length} new match(es). Tap to view.`;
-        await sendPush(record.subscription, { title, body, url: '/' }, env);
+        offersByStore.set(storeId, extractOffers(payload));
       }
 
-      const updatedIds = offers
-        .map(
-          (offer) =>
+      const seen = options.force ? new Set() : new Set(record.lastSeenIds || []);
+      const endpointKey = key.name.replace('sub:', '');
+      for (const alert of activeAlerts) {
+        const perStoreOffers = (alert.storeIds || []).flatMap((id) => offersByStore.get(id) || []);
+        const matches = perStoreOffers.filter((offer) => matchesKeywords(offer, alert.keywords || []));
+        const fresh = matches.filter((offer) => {
+          const id =
             offer?.offers?.[0]?.id ||
             offer?.offers?.[0]?.offerUuid ||
             offer?.id ||
             offer?.offerId ||
             offer?.articleNumbers?.[0] ||
-            offer?.articleNumber
-        )
-        .filter(Boolean)
-        .slice(0, 200);
+            offer?.articleNumber;
+          if (!id) return false;
+          return !seen.has(id);
+        });
+        if (fresh.length === 0) continue;
 
-      record.lastSeenIds = updatedIds;
+        const first = fresh[0];
+        const title = first?.title || first?.name || 'New IKEA listing';
+        const alertName = alert.name || 'Alert';
+        const body = `${alertName}: ${fresh.length} new match(es).`;
+        const params = new URLSearchParams();
+        params.set('tab', 'alerts');
+        if (alert.id) params.set('alertId', alert.id);
+        if (alert.storeIds?.length) params.set('stores', alert.storeIds.join(','));
+        if (alert.keywords?.length) params.set('keywords', alert.keywords.join(','));
+        const url = params.toString() ? `/?${params}` : '/';
+        const payload = {
+          title,
+          body,
+          url,
+          alertId: alert.id || null,
+          newCount: fresh.length
+        };
+        await enqueueNotification(env, endpointKey, payload);
+        await sendPush(record.subscription, null, env);
+      }
+
+      const updatedIds = [];
+      for (const offers of offersByStore.values()) {
+        for (const offer of offers) {
+          const id =
+            offer?.offers?.[0]?.id ||
+            offer?.offers?.[0]?.offerUuid ||
+            offer?.id ||
+            offer?.offerId ||
+            offer?.articleNumbers?.[0] ||
+            offer?.articleNumber;
+          if (id) updatedIds.push(id);
+        }
+      }
+
+      record.lastSeenIds = updatedIds.slice(0, 200);
       await env.SUBSCRIPTIONS.put(key.name, JSON.stringify(record));
     }
   } while (cursor);
@@ -330,6 +574,39 @@ export default {
     if (url.pathname === '/api/test-notification' && request.method === 'POST') {
       return handleTestNotification(request, env);
     }
+
+    if (url.pathname === '/api/alerts' && request.method === 'POST') {
+      return handleAlerts(request, env);
+    }
+
+    if (url.pathname === '/api/meta' && request.method === 'GET') {
+      return json({ versionId: env.WORKER_VERSION_ID || 'unknown' }, { headers: corsHeaders });
+    }
+
+    if (url.pathname === '/api/next-notification' && request.method === 'GET') {
+      return handleNextNotification(request, env);
+    }
+
+    if (url.pathname === '/api/test-alert' && request.method === 'POST') {
+      return handleTestAlert(request, env);
+    }
+
+  if (url.pathname === '/api/run-alerts' && request.method === 'POST') {
+    const { searchParams } = new URL(request.url);
+    const force = searchParams.get('force') === '1';
+    await processSubscriptions(env, { force });
+    return json({ ok: true, force }, { headers: corsHeaders });
+  }
+
+  if (url.pathname === '/api/debug-subscription' && request.method === 'GET') {
+    const { searchParams } = new URL(request.url);
+    const endpoint = searchParams.get('endpoint');
+    if (!endpoint) return json({ error: 'Missing endpoint' }, { status: 400, headers: corsHeaders });
+    const key = await hashEndpoint(endpoint);
+    const raw = await env.SUBSCRIPTIONS.get(`sub:${key}`);
+    if (!raw) return json({ error: 'Subscription not found' }, { status: 404, headers: corsHeaders });
+    return json({ ok: true, record: JSON.parse(raw) }, { headers: corsHeaders });
+  }
 
     return json({ error: 'Not found' }, { status: 404, headers: corsHeaders });
   },
