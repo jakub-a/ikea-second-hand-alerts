@@ -12,3 +12,11 @@ command = '''
 cd /Users/jakubandrzejewski/Documents/GitHub/ikea-second-hand-alerts/apps/worker
 npm run deploy
 '''
+
+[[actions]]
+name = "Deploy Worker"
+icon = "tool"
+command = '''
+cd /Users/jakubandrzejewski/Documents/GitHub/ikea-second-hand-alerts/apps/worker
+npm run deploy
+'''
