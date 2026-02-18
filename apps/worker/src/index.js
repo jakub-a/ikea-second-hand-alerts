@@ -376,6 +376,7 @@ async function handleTestAlert(request, env) {
   const alertId = alert.id || null;
   const alertKeywords = Array.isArray(alert.keywords) ? alert.keywords : [];
   const alertStores = Array.isArray(alert.storeIds) ? alert.storeIds : [];
+  const notificationId = crypto.randomUUID();
   const payload = {
     title: alert.name || 'IKEA Alert Test',
     body: `Test alert: ${alertKeywords.join(', ')}`,
@@ -385,11 +386,13 @@ async function handleTestAlert(request, env) {
       if (alertId) params.set('alertId', alertId);
       if (alertStores.length) params.set('stores', alertStores.join(','));
       if (alertKeywords.length) params.set('keywords', alertKeywords.join(','));
+      params.set('notificationId', notificationId);
       const qs = params.toString();
       return qs ? `/?${qs}` : '/';
     })(),
     alertId,
-    newCount: 0
+    newCount: 0,
+    notificationId
   };
 
   await enqueueNotification(env, key, payload);
@@ -511,18 +514,22 @@ async function processSubscriptions(env, options = {}) {
         const title = first?.title || first?.name || 'New IKEA listing';
         const alertName = alert.name || 'Alert';
         const body = `${alertName}: ${fresh.length} new match(es).`;
+        const notificationId = crypto.randomUUID();
         const params = new URLSearchParams();
         params.set('tab', 'alerts');
         if (alert.id) params.set('alertId', alert.id);
         if (alert.storeIds?.length) params.set('stores', alert.storeIds.join(','));
         if (alert.keywords?.length) params.set('keywords', alert.keywords.join(','));
+        params.set('newCount', String(fresh.length));
+        params.set('notificationId', notificationId);
         const url = params.toString() ? `/?${params}` : '/';
         const payload = {
           title,
           body,
           url,
           alertId: alert.id || null,
-          newCount: fresh.length
+          newCount: fresh.length,
+          notificationId
         };
         await enqueueNotification(env, endpointKey, payload);
         await sendPush(record.subscription, null, env);

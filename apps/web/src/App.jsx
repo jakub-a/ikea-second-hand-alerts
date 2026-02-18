@@ -1,9 +1,10 @@
-import React, { useMemo, useState, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 
 const DEFAULT_STORE_ID = '294'; // Wroclaw (from captured request)
 const APP_VERSION = '0.12.1';
 const DEBUG_STORAGE_KEY = 'ikea-debug-mode';
 const NOTIF_STORAGE_KEY = 'ikea-notifications-enabled';
+const HANDLED_NOTIFICATIONS_STORAGE_KEY = 'ikea-handled-notification-ids';
 
 const KNOWN_STORES = [
   { id: '188', label: 'Warszawa Janki', slug: 'warszawa+janki' },
@@ -67,6 +68,21 @@ function loadNotificationFlag() {
 
 function saveNotificationFlag(value) {
   localStorage.setItem(NOTIF_STORAGE_KEY, value ? 'true' : 'false');
+}
+
+function loadHandledNotificationIds() {
+  try {
+    const raw = localStorage.getItem(HANDLED_NOTIFICATIONS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function saveHandledNotificationIds(ids) {
+  localStorage.setItem(HANDLED_NOTIFICATIONS_STORAGE_KEY, JSON.stringify(ids.slice(-200)));
 }
 
 function extractOffers(payload) {
@@ -367,6 +383,7 @@ export default function App() {
   const [alertNameInput, setAlertNameInput] = useState('');
   const [workerMeta, setWorkerMeta] = useState({ versionId: 'unknown' });
   const userToggledNotificationsRef = useRef(false);
+  const handledNotificationsRef = useRef(loadHandledNotificationIds());
 
   const activeStoreIds = useMemo(() => {
     return selectedStoreIds.length > 0 ? selectedStoreIds : [];
@@ -389,6 +406,32 @@ export default function App() {
     }
     return grouped;
   }, [filteredOffers]);
+
+  const applyAlertBadgeIncrement = useCallback((payload) => {
+    const alertId = payload?.alertId;
+    const increment = Number(payload?.newCount);
+    const notificationId = payload?.notificationId;
+    if (!alertId || !(increment > 0)) return;
+
+    if (notificationId && handledNotificationsRef.current.includes(notificationId)) {
+      return;
+    }
+
+    if (notificationId) {
+      handledNotificationsRef.current = [...handledNotificationsRef.current, notificationId].slice(-200);
+      saveHandledNotificationIds(handledNotificationsRef.current);
+    }
+
+    setAlerts((prev) => {
+      const next = prev.map((alert) =>
+        alert.id === alertId
+          ? { ...alert, unreadCount: (alert.unreadCount || 0) + increment }
+          : alert
+      );
+      saveAlertsToStorage(next);
+      return next;
+    });
+  }, []);
 
   const storeLabelFor = (id) => {
     const match = stores.find((store) => store.id === id);
@@ -574,22 +617,8 @@ export default function App() {
     if (!('serviceWorker' in navigator)) return undefined;
     const handler = (event) => {
       if (!event?.data) return;
-      if (event.data?.type === 'push' && event.data?.payload?.alertId) {
-        const { alertId, newCount } = event.data.payload;
-        if (alertId) {
-          const increment = Number(newCount);
-          if (increment > 0) {
-            setAlerts((prev) => {
-              const next = prev.map((alert) =>
-                alert.id === alertId
-                  ? { ...alert, unreadCount: (alert.unreadCount || 0) + increment }
-                  : alert
-              );
-              saveAlertsToStorage(next);
-              return next;
-            });
-          }
-        }
+      if (event.data?.type === 'push') {
+        applyAlertBadgeIncrement(event.data?.payload);
       }
       setDebugEvents((prev) => [
         {
@@ -602,7 +631,7 @@ export default function App() {
     };
     navigator.serviceWorker.addEventListener('message', handler);
     return () => navigator.serviceWorker.removeEventListener('message', handler);
-  }, []);
+  }, [applyAlertBadgeIncrement]);
 
   useEffect(() => {
     if (didInitFromUrl) return;
@@ -619,6 +648,16 @@ export default function App() {
     const shouldOpenAlerts = tabParam === 'alerts';
 
     const alertId = params.get('alertId');
+    const newCount = params.get('newCount');
+    const notificationId = params.get('notificationId');
+    if (alertId && newCount) {
+      applyAlertBadgeIncrement({
+        alertId,
+        newCount: Number(newCount),
+        notificationId
+      });
+    }
+
     if (alertId && !shouldOpenAlerts) {
       const match = alerts.find((alert) => alert.id === alertId);
       if (match) {
@@ -661,7 +700,7 @@ export default function App() {
     }
 
     setDidInitFromUrl(true);
-  }, [alerts, didInitFromUrl]);
+  }, [alerts, applyAlertBadgeIncrement, didInitFromUrl]);
 
   const openAlertModal = () => {
     if (activeStoreIds.length === 0) {

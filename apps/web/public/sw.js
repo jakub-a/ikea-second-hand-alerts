@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ikea-alerts-v3';
+const CACHE_NAME = 'ikea-alerts-v4';
 const API_BASE = 'https://ikea-second-hand-alerts.ikea-second-hand-alerts.workers.dev';
 const CORE_ASSETS = ['/', '/index.html', '/manifest.webmanifest'];
 
@@ -75,7 +75,12 @@ self.addEventListener('push', (event) => {
       const title = payload.title || 'IKEA Second-Hand Alert';
       const options = {
         body: payload.body || 'New listing matches your keywords.',
-        data: payload.url || '/'
+        data: {
+          url: payload.url || '/',
+          alertId: payload.alertId || null,
+          newCount: Number(payload.newCount) || 0,
+          notificationId: payload.notificationId || null
+        }
       };
       const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       clients.forEach((client) => {
@@ -88,13 +93,48 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const target = event.notification.data || '/';
+  const rawData = event.notification.data;
+  const data = typeof rawData === 'string' ? { url: rawData } : (rawData || {});
+  let target = data.url || '/';
+
+  try {
+    const url = new URL(target, self.location.origin);
+    if (data.alertId && !url.searchParams.get('alertId')) {
+      url.searchParams.set('alertId', data.alertId);
+    }
+    if (Number(data.newCount) > 0 && !url.searchParams.get('newCount')) {
+      url.searchParams.set('newCount', String(Number(data.newCount)));
+    }
+    if (data.notificationId && !url.searchParams.get('notificationId')) {
+      url.searchParams.set('notificationId', data.notificationId);
+    }
+    target = `${url.pathname}${url.search}${url.hash}`;
+  } catch (err) {
+    target = '/';
+  }
+
   event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      for (const client of clientList) {
-        if (client.url === target && 'focus' in client) return client.focus();
+    (async () => {
+      const clientList = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+      const sameOriginClient = clientList.find((client) => {
+        try {
+          return new URL(client.url).origin === self.location.origin;
+        } catch (err) {
+          return false;
+        }
+      });
+
+      if (sameOriginClient) {
+        if ('navigate' in sameOriginClient) {
+          await sameOriginClient.navigate(target);
+        }
+        if ('focus' in sameOriginClient) {
+          return sameOriginClient.focus();
+        }
       }
+
       if (clients.openWindow) return clients.openWindow(target);
-    })
+      return undefined;
+    })()
   );
 });
