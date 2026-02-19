@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import { normalizeQuery, parseStoreIdList } from '../../../shared/search-utils.js';
 
 const DEFAULT_STORE_ID = '294'; // Wroclaw (from captured request)
 const APP_VERSION = '0.12.1';
@@ -148,14 +149,16 @@ function normalizeOffer(offer) {
 }
 
 async function fetchOffers(storeIds, query) {
+  const normalizedStoreIds = parseStoreIdList(storeIds).join(',');
+  const normalizedQuery = normalizeQuery(query);
   const params = new URLSearchParams({
     languageCode: 'pl',
     size: '32',
-    storeIds,
+    storeIds: normalizedStoreIds,
     page: '0',
     allPages: '1'
   });
-  if (query) params.set('query', query);
+  if (normalizedQuery) params.set('query', normalizedQuery);
   const res = await fetch(`${API_BASE}/api/items?${params.toString()}`);
   if (!res.ok) throw new Error('Failed to load offers');
   const data = await res.json();
@@ -450,7 +453,7 @@ export default function App() {
         setStatus('Add at least one keyword to search.');
         return;
       }
-      const query = keywordList.join(' ');
+      const query = normalizeQuery(keywordList.join(' '));
       const data = await fetchOffers(storeIds.join(','), query);
       setOffers(data);
       setStatus(`Loaded ${data.length} items.`);
@@ -467,7 +470,7 @@ export default function App() {
   };
 
   const applyKeywords = async () => {
-    const value = keywordsInput.trim();
+    const value = normalizeQuery(keywordsInput);
     const list = value ? [value] : [];
     setKeywords(list);
     await searchWith(activeStoreIds, list);

@@ -1,3 +1,5 @@
+import { buildQueryVariants, normalizeQuery, parseStoreIdList } from '../../../shared/search-utils.js';
+
 const json = (data, init = {}) =>
   new Response(JSON.stringify(data), {
     headers: { 'Content-Type': 'application/json', ...init.headers },
@@ -30,6 +32,14 @@ function parseStores(env) {
 
 async function hashEndpoint(endpoint) {
   const data = encoder.encode(endpoint);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+async function hashText(value) {
+  const data = encoder.encode(value);
   const digest = await crypto.subtle.digest('SHA-256', data);
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, '0'))
@@ -218,6 +228,27 @@ async function fetchOffersPage({ storeId, languageCode, size, page, query }, env
   return res.json();
 }
 
+function mergeUniqueOffersById(...offerGroups) {
+  const merged = [];
+  const seen = new Set();
+  for (const offers of offerGroups) {
+    for (const offer of offers) {
+      const id =
+        offer?.offers?.[0]?.id ||
+        offer?.offers?.[0]?.offerUuid ||
+        offer?.id ||
+        offer?.offerId ||
+        offer?.articleNumbers?.[0] ||
+        offer?.articleNumber;
+      const key = id ? String(id) : JSON.stringify(offer);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(offer);
+    }
+  }
+  return merged;
+}
+
 async function fetchOffers({ storeIds, languageCode, size, query }, env, { allPages = false } = {}) {
   const first = await fetchOffersPage({ storeId: storeIds, languageCode, size, page: '0', query }, env);
   if (!allPages) return first;
@@ -255,21 +286,71 @@ function extractOffers(payload) {
 
 async function handleItems(request, env) {
   const { searchParams } = new URL(request.url);
-  const storeIds = searchParams.get('storeIds');
-  if (!storeIds) return json({ error: 'Missing storeIds' }, { status: 400, headers: corsHeaders });
+  const rawStoreIds = searchParams.get('storeIds');
+  const storeIdList = parseStoreIdList(rawStoreIds);
+  if (storeIdList.length === 0) return json({ error: 'Missing storeIds' }, { status: 400, headers: corsHeaders });
+
+  const languageCode = searchParams.get('languageCode') || 'pl';
+  const size = searchParams.get('size') || '32';
+  const allPages = searchParams.get('allPages') === '1';
+  const debugEnabled = searchParams.get('debug') === '1' || request.headers.get('x-debug-search') === '1';
+  const normalizedQuery = normalizeQuery(searchParams.get('query') || '');
+  const queryVariants = buildQueryVariants(normalizedQuery);
+  const primaryQuery = queryVariants[0] || undefined;
+  const storeIds = storeIdList.join(',');
 
   const payload = await fetchOffers(
-    {
-      storeIds,
-      languageCode: searchParams.get('languageCode') || 'pl',
-      size: searchParams.get('size') || '32',
-      query: searchParams.get('query') || undefined
-    },
+    { storeIds, languageCode, size, query: primaryQuery },
     env,
-    { allPages: searchParams.get('allPages') === '1' }
+    { allPages }
   );
 
-  return json(payload, { headers: corsHeaders });
+  const rawOffers = extractOffers(payload);
+  let finalOffers = rawOffers;
+
+  // Single-store search can occasionally miss relevant results on stricter phrase matching.
+  if (storeIdList.length === 1 && rawOffers.length === 0 && queryVariants.length > 1) {
+    const fallbackPayloads = await Promise.all(
+      queryVariants.slice(1).map((variant) =>
+        fetchOffers({ storeIds, languageCode, size, query: variant }, env, { allPages })
+      )
+    );
+    const fallbackOffers = fallbackPayloads.flatMap((item) => extractOffers(item));
+    finalOffers = mergeUniqueOffersById(rawOffers, fallbackOffers);
+  }
+
+  const outputPayload = {
+    ...payload,
+    content: finalOffers
+  };
+
+  if (!debugEnabled) {
+    return json(outputPayload, { headers: corsHeaders });
+  }
+
+  const requestFingerprint = await hashText(
+    JSON.stringify({
+      storeIdList,
+      normalizedQuery,
+      allPages,
+      size,
+      languageCode
+    })
+  );
+
+  const debug = {
+    requestFingerprint,
+    storeIds: rawStoreIds,
+    storeIdList,
+    query: normalizedQuery,
+    queryVariants,
+    allPages,
+    rawCount: rawOffers.length,
+    normalizedCount: finalOffers.length
+  };
+
+  console.log('[items-debug]', JSON.stringify(debug));
+  return json({ ...outputPayload, debug }, { headers: corsHeaders });
 }
 
 async function handleSubscribe(request, env) {
@@ -554,6 +635,12 @@ async function processSubscriptions(env, options = {}) {
     }
   } while (cursor);
 }
+
+export const __testables = {
+  extractOffers,
+  mergeUniqueOffersById,
+  matchesKeywords
+};
 
 export default {
   async fetch(request, env) {

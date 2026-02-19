@@ -19,6 +19,27 @@ npm install
 npm run dev
 ```
 
+## Tests
+```bash
+cd apps/worker
+npm run test:all
+```
+
+```bash
+cd apps/web
+npm run test:unit
+npm run test:smoke
+```
+
+## Search debug snapshot
+```bash
+node scripts/repro-search.mjs --query "billy shelf" --stores "294,203"
+```
+
+See:
+- `docs/release-checklist.md`
+- `docs/ai-debug-framework.md`
+
 ## Deployment
 - Web: Cloudflare Pages
 - Worker: Cloudflare Workers + KV + Cron

@@ -14,8 +14,15 @@
 
 ## Endpoints
 - `GET /api/items?languageCode=pl&size=32&storeIds=294&page=0`
+- `GET /api/items?languageCode=pl&size=32&storeIds=294&query=billy&allPages=1&debug=1`
 - `POST /api/subscribe`
 - `POST /api/unsubscribe`
+
+`/api/items` debug mode (`debug=1` query or header `x-debug-search: 1`) includes:
+- `debug.requestFingerprint`
+- `debug.rawCount`
+- `debug.normalizedCount`
+- normalized query/store metadata for troubleshooting
 
 ## Notes
 - The push implementation uses `@cloudflare/web-push` (install via npm).
