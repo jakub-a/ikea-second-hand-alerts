@@ -38,6 +38,23 @@ body:
       label: Logs/snapshots
       description: Include console logs and search snapshots (if applicable).
 
+  - type: dropdown
+    id: recurrence
+    attributes:
+      label: Recurrence
+      description: Is this a new issue or a repeated pattern?
+      options:
+        - New issue
+        - Repeated issue pattern
+    validations:
+      required: false
+
+  - type: textarea
+    id: guardrail
+    attributes:
+      label: Proposed guardrail/check
+      description: If repeated/high-impact, suggest a prevention guardrail and verification check.
+
   - type: textarea
     id: acceptance
     attributes:
