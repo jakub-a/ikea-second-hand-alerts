@@ -15,6 +15,8 @@ For repeated/high-impact misses:
 At the beginning of each non-trivial task, explicitly state:
 - which workflow files apply
 - why they apply
+- before starting any new implementation/debug task, remind the user to create/switch to a feature branch (e.g., `codex/<task-name>`) unless they explicitly choose to work on `main`
+- when a branch is needed, provide the exact command to create/switch (`git checkout -b codex/<task-name>` or `git checkout <existing-branch>`)
 
 ## Completion requirements
 Before marking done, include:
