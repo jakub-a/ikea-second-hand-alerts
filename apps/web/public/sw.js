@@ -1,5 +1,6 @@
-const CACHE_NAME = 'ikea-alerts-v4';
+const CACHE_NAME = 'ikea-alerts-v5';
 const API_BASE = 'https://ikea-second-hand-alerts.ikea-second-hand-alerts.workers.dev';
+const API_ORIGIN = new URL(API_BASE).origin;
 const CORE_ASSETS = ['/', '/index.html', '/manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
@@ -22,6 +23,12 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
+  const isApiRequest = url.origin === API_ORIGIN || url.pathname.startsWith('/api/');
+  if (isApiRequest) {
+    event.respondWith(fetch(request));
+    return;
+  }
+
   if (request.mode === 'navigate' || url.pathname === '/') {
     event.respondWith(
       fetch(request)

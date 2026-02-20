@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import { normalizeQuery, parseStoreIdList } from '../../../shared/search-utils.js';
 
 const DEFAULT_STORE_ID = '294'; // Wroclaw (from captured request)
-const APP_VERSION = '0.12.1';
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || 'dev';
 const DEBUG_STORAGE_KEY = 'ikea-debug-mode';
 const NOTIF_STORAGE_KEY = 'ikea-notifications-enabled';
 const HANDLED_NOTIFICATIONS_STORAGE_KEY = 'ikea-handled-notification-ids';
@@ -387,6 +387,7 @@ export default function App() {
   const [workerMeta, setWorkerMeta] = useState({ versionId: 'unknown' });
   const userToggledNotificationsRef = useRef(false);
   const handledNotificationsRef = useRef(loadHandledNotificationIds());
+  const appAndWorkerVersion = `App ${APP_VERSION} · Worker ${workerMeta.versionId}`;
 
   const activeStoreIds = useMemo(() => {
     return selectedStoreIds.length > 0 ? selectedStoreIds : [];
@@ -605,7 +606,9 @@ export default function App() {
   useEffect(() => {
     const fetchMeta = async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/meta`);
+        const res = await fetch(`${API_BASE}/api/meta?t=${Date.now()}`, {
+          cache: 'no-store'
+        });
         if (!res.ok) return;
         const data = await res.json();
         if (data?.versionId) setWorkerMeta({ versionId: data.versionId });
@@ -769,20 +772,20 @@ export default function App() {
             <p className="subtitle">
               Track second-hand listings and get push alerts on your phone.
             </p>
-            <p className="version">Version {APP_VERSION}</p>
+            <p className="version">{appAndWorkerVersion}</p>
           </div>
         </header>
       )}
       {activeTab === 'alerts' && (
         <div className="page-title">
           <h1>Alerts</h1>
-          <span className="version">Version {APP_VERSION}</span>
+          <span className="version">{appAndWorkerVersion}</span>
         </div>
       )}
       {activeTab === 'settings' && (
         <div className="page-title">
           <h1>Settings</h1>
-          <span className="version">Version {APP_VERSION}</span>
+          <span className="version">{appAndWorkerVersion}</span>
         </div>
       )}
 

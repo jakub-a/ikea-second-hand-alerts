@@ -11,6 +11,7 @@
 4. Deploy:
    - `npm install`
    - `npm run deploy`
+   - Deploy script automatically sets `WORKER_VERSION_ID` to a timestamp+git-sha value.
 
 ## Endpoints
 - `GET /api/items?languageCode=pl&size=32&storeIds=294&page=0`
