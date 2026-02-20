@@ -8,12 +8,21 @@
    - `cd apps/web && npm run test:unit`
 3. Run web smoke tests:
    - `cd apps/web && npm run test:smoke`
-4. Run reproducible search snapshot for changed search behavior:
+4. Run notification-focused worker tests:
+   - `cd apps/worker && npm run test:notifications`
+5. Run notification-focused smoke tests:
+   - `cd apps/web && npm run test:smoke:notifications`
+6. Run daily canary check locally (optional but recommended before notification changes):
+   - `node scripts/canary-check.mjs`
+7. Run reproducible search snapshot for changed search behavior:
    - `node scripts/repro-search.mjs --query "billy shelf" --stores "294,203"`
-5. Verify one production sanity check manually:
+8. Verify one production sanity check manually:
    - single city search
    - multi city search
    - alert deep-link opens Alerts tab
+   - per-alert unread counts remain isolated
+9. Confirm latest canary workflow status:
+   - GitHub Actions `Notification Canary` workflow is green or reviewed as non-blocking.
 
 ## Deploy
 

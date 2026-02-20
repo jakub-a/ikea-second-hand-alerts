@@ -201,11 +201,42 @@ async function createVapidJwt(audience, publicKey, privateKey) {
 }
 
 function matchesKeywords(offer, keywords) {
-  if (!keywords || keywords.length === 0) return false;
+  const normalizedKeywords = normalizeAlertKeywords(keywords);
+  if (normalizedKeywords.length === 0) return false;
   const title = offer?.title || offer?.name || '';
   const description = offer?.description || offer?.shortDescription || '';
-  const textValue = `${title} ${description}`.toLowerCase();
-  return keywords.some((keyword) => textValue.includes(keyword.toLowerCase()));
+  const textValue = `${title} ${description}`;
+  return normalizedKeywords.some((keyword) => matchKeyword(textValue, keyword));
+}
+
+function normalizeForMatch(input) {
+  if (!input) return '';
+  return String(input)
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizeAlertKeywords(keywords) {
+  if (!Array.isArray(keywords)) return [];
+  const normalized = keywords
+    .map((keyword) => normalizeForMatch(keyword))
+    .filter((keyword) => keyword.length >= 2);
+  return [...new Set(normalized)];
+}
+
+function matchKeyword(offerText, keyword) {
+  const normalizedText = normalizeForMatch(offerText);
+  const normalizedKeyword = normalizeForMatch(keyword);
+  if (!normalizedText || normalizedKeyword.length < 2) return false;
+
+  if (normalizedText.includes(normalizedKeyword)) return true;
+  const keywordTokens = normalizedKeyword.split(' ').filter((token) => token.length >= 2);
+  if (keywordTokens.length <= 1) return false;
+  return keywordTokens.every((token) => normalizedText.includes(token));
 }
 
 const MAX_PAGES = 20;
@@ -542,7 +573,41 @@ async function enqueueNotification(env, key, payload) {
   await env.SUBSCRIPTIONS.put(`notif:${key}`, JSON.stringify({ queue }), { expirationTtl: 300 });
 }
 
+function resolveOfferId(offer) {
+  return (
+    offer?.offers?.[0]?.id ||
+    offer?.offers?.[0]?.offerUuid ||
+    offer?.id ||
+    offer?.offerId ||
+    offer?.articleNumbers?.[0] ||
+    offer?.articleNumber ||
+    null
+  );
+}
+
+function pushMissSample(samples, reason, offer) {
+  if (samples.length >= 5) return;
+  samples.push({
+    reason,
+    offerId: resolveOfferId(offer),
+    title: offer?.title || offer?.name || 'unknown'
+  });
+}
+
 async function processSubscriptions(env, options = {}) {
+  const debug = options.debug === true;
+  const dryRun = options.dryRun === true;
+  const summary = {
+    startedAt: new Date().toISOString(),
+    dryRun,
+    force: options.force === true,
+    subscriptionsProcessed: 0,
+    alertsEvaluated: 0,
+    notificationsQueued: 0,
+    notificationsSent: 0,
+    subscriptions: []
+  };
+
   let cursor = undefined;
   do {
     const list = await env.SUBSCRIPTIONS.list({ prefix: 'sub:', cursor, limit: 1000 });
@@ -552,6 +617,12 @@ async function processSubscriptions(env, options = {}) {
       const raw = await env.SUBSCRIPTIONS.get(key.name);
       if (!raw) continue;
       const record = JSON.parse(raw);
+      const subscriptionSummary = {
+        subscriptionId: key.name.replace('sub:', '').slice(0, 12),
+        activeAlerts: 0,
+        fetchErrors: [],
+        alerts: []
+      };
       const alerts = Array.isArray(record.alerts) && record.alerts.length > 0
         ? record.alerts
         : [
@@ -565,30 +636,70 @@ async function processSubscriptions(env, options = {}) {
           ];
 
       const activeAlerts = alerts.filter((alert) => alert.active);
+      subscriptionSummary.activeAlerts = activeAlerts.length;
       const storeIds = [...new Set(activeAlerts.flatMap((alert) => alert.storeIds || []))];
       const offersByStore = new Map();
 
       for (const storeId of storeIds) {
-        const payload = await fetchOffers({ storeIds: storeId }, env);
-        offersByStore.set(storeId, extractOffers(payload));
+        try {
+          const payload = await fetchOffers({ storeIds: storeId }, env);
+          offersByStore.set(storeId, extractOffers(payload));
+        } catch (err) {
+          offersByStore.set(storeId, []);
+          if (debug) {
+            subscriptionSummary.fetchErrors.push({
+              storeId,
+              error: err?.message || 'unknown_error'
+            });
+          }
+        }
       }
 
       const seen = options.force ? new Set() : new Set(record.lastSeenIds || []);
       const endpointKey = key.name.replace('sub:', '');
       for (const alert of activeAlerts) {
+        summary.alertsEvaluated += 1;
+        const normalizedKeywords = normalizeAlertKeywords(alert.keywords || []);
         const perStoreOffers = (alert.storeIds || []).flatMap((id) => offersByStore.get(id) || []);
-        const matches = perStoreOffers.filter((offer) => matchesKeywords(offer, alert.keywords || []));
-        const fresh = matches.filter((offer) => {
-          const id =
-            offer?.offers?.[0]?.id ||
-            offer?.offers?.[0]?.offerUuid ||
-            offer?.id ||
-            offer?.offerId ||
-            offer?.articleNumbers?.[0] ||
-            offer?.articleNumber;
-          if (!id) return false;
-          return !seen.has(id);
-        });
+        const alertDebug = {
+          alertId: alert.id || 'unknown',
+          name: alert.name || 'Alert',
+          keywords: normalizedKeywords,
+          offersScanned: perStoreOffers.length,
+          offersMatched: 0,
+          offersFresh: 0,
+          offersSuppressedBySeen: 0,
+          offersMissingId: 0,
+          sampleMissReasons: []
+        };
+        const matches = [];
+        for (const offer of perStoreOffers) {
+          if (normalizedKeywords.length === 0 || !matchesKeywords(offer, normalizedKeywords)) {
+            pushMissSample(alertDebug.sampleMissReasons, 'keyword_miss', offer);
+            continue;
+          }
+          matches.push(offer);
+        }
+        alertDebug.offersMatched = matches.length;
+
+        const fresh = [];
+        for (const offer of matches) {
+          const id = resolveOfferId(offer);
+          if (!id) {
+            alertDebug.offersMissingId += 1;
+            pushMissSample(alertDebug.sampleMissReasons, 'missing_offer_id', offer);
+            continue;
+          }
+          if (seen.has(id)) {
+            alertDebug.offersSuppressedBySeen += 1;
+            pushMissSample(alertDebug.sampleMissReasons, 'seen_offer', offer);
+            continue;
+          }
+          fresh.push(offer);
+        }
+        alertDebug.offersFresh = fresh.length;
+
+        if (debug) subscriptionSummary.alerts.push(alertDebug);
         if (fresh.length === 0) continue;
 
         const first = fresh[0];
@@ -612,34 +723,43 @@ async function processSubscriptions(env, options = {}) {
           newCount: fresh.length,
           notificationId
         };
-        await enqueueNotification(env, endpointKey, payload);
-        await sendPush(record.subscription, null, env);
+        if (!dryRun) {
+          await enqueueNotification(env, endpointKey, payload);
+          summary.notificationsQueued += 1;
+          await sendPush(record.subscription, null, env);
+          summary.notificationsSent += 1;
+        }
       }
 
       const updatedIds = [];
       for (const offers of offersByStore.values()) {
         for (const offer of offers) {
-          const id =
-            offer?.offers?.[0]?.id ||
-            offer?.offers?.[0]?.offerUuid ||
-            offer?.id ||
-            offer?.offerId ||
-            offer?.articleNumbers?.[0] ||
-            offer?.articleNumber;
+          const id = resolveOfferId(offer);
           if (id) updatedIds.push(id);
         }
       }
 
-      record.lastSeenIds = updatedIds.slice(0, 200);
-      await env.SUBSCRIPTIONS.put(key.name, JSON.stringify(record));
+      if (!dryRun) {
+        record.lastSeenIds = updatedIds.slice(0, 200);
+        await env.SUBSCRIPTIONS.put(key.name, JSON.stringify(record));
+      }
+      summary.subscriptionsProcessed += 1;
+      if (debug) summary.subscriptions.push(subscriptionSummary);
     }
   } while (cursor);
+
+  summary.finishedAt = new Date().toISOString();
+  return summary;
 }
 
 export const __testables = {
   extractOffers,
   mergeUniqueOffersById,
-  matchesKeywords
+  matchesKeywords,
+  normalizeForMatch,
+  normalizeAlertKeywords,
+  matchKeyword,
+  resolveOfferId
 };
 
 export default {
@@ -688,8 +808,11 @@ export default {
   if (url.pathname === '/api/run-alerts' && request.method === 'POST') {
     const { searchParams } = new URL(request.url);
     const force = searchParams.get('force') === '1';
-    await processSubscriptions(env, { force });
-    return json({ ok: true, force }, { headers: corsHeaders });
+    const dryRun = searchParams.get('dryRun') === '1';
+    const debug = searchParams.get('debug') === '1';
+    const summary = await processSubscriptions(env, { force, dryRun, debug });
+    if (debug) return json({ ok: true, force, dryRun, debug, summary }, { headers: corsHeaders });
+    return json({ ok: true, force, dryRun }, { headers: corsHeaders });
   }
 
   if (url.pathname === '/api/debug-subscription' && request.method === 'GET') {
@@ -705,6 +828,6 @@ export default {
     return json({ error: 'Not found' }, { status: 404, headers: corsHeaders });
   },
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(processSubscriptions(env));
+    ctx.waitUntil(processSubscriptions(env, { dryRun: false, debug: false }));
   }
 };

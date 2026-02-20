@@ -9,6 +9,7 @@
     "test": "vitest run",
     "test:unit": "vitest run test/search-utils.test.js",
     "test:integration": "vitest run test/items.integration.test.js",
+    "test:notifications": "vitest run test/run-alerts.integration.test.js test/search-utils.test.js",
     "test:all": "vitest run"
   },
   "devDependencies": {

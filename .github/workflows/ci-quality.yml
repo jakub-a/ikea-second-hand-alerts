@@ -6,6 +6,19 @@ on:
   workflow_dispatch:
 
 jobs:
+  worker-notification-regression:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+        working-directory: apps/worker
+      - run: npm run test:notifications
+        working-directory: apps/worker
+
   worker-tests:
     runs-on: ubuntu-latest
     continue-on-error: true
@@ -45,4 +58,19 @@ jobs:
       - run: npx playwright install --with-deps chromium
         working-directory: apps/web
       - run: npm run test:smoke
+        working-directory: apps/web
+
+  web-notification-regression:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+        working-directory: apps/web
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/web
+      - run: npm run test:smoke:notifications
         working-directory: apps/web

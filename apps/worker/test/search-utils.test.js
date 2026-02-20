@@ -25,3 +25,21 @@ describe('offer extraction', () => {
     expect(__testables.extractOffers({ bad: true })).toEqual([]);
   });
 });
+
+describe('notification keyword matching', () => {
+  it('normalizes diacritics and punctuation', () => {
+    expect(__testables.normalizeForMatch('Trådfri - Żarówka!')).toBe('tradfri zarowka');
+  });
+
+  it('matches tradfri keyword against Trådfri text', () => {
+    expect(__testables.matchKeyword('Nowa lampa TRÅDFRI', 'tradfri')).toBe(true);
+  });
+
+  it('matches case-insensitively', () => {
+    expect(__testables.matchKeyword('TONSTAD szafka', 'tonstad')).toBe(true);
+  });
+
+  it('does not overmatch unrelated terms', () => {
+    expect(__testables.matchKeyword('BILLY regał', 'tonstad')).toBe(false);
+  });
+});

@@ -73,6 +73,14 @@
 4. Repeated mistake class:
    - Must produce one concise lesson entry and a prevention check.
 
+## Notification incident standards
+
+- Normalize locale-sensitive text for keyword matching (Unicode normalization + diacritic stripping) before comparisons.
+- For "missing alert" incidents, run a debug-first dry-run trace before mutating production state:
+  - `POST /api/run-alerts?dryRun=1&debug=1`
+- Include "why not triggered" counters in incident notes:
+  - scanned, matched, fresh, suppressed-by-seen, missing-id, sample miss reasons.
+
 ## Assumptions and Defaults
 1. Default operating mode is Codex-native pragmatic execution with risk-based planning.
 2. Team priority is delivery speed with high confidence, not maximal process ceremony.

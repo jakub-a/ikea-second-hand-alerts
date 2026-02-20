@@ -1,0 +1,28 @@
+name: Notification Canary
+
+on:
+  schedule:
+    - cron: "15 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      WORKER_BASE_URL: https://ikea-second-hand-alerts.ikea-second-hand-alerts.workers.dev
+      CANARY_ALERT_ID: ${{ secrets.CANARY_ALERT_ID }}
+      CANARY_OUTPUT_DIR: ./artifacts/canary
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Run worker dry-run canary
+        run: node scripts/canary-check.mjs
+      - name: Upload canary artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: notification-canary
+          path: artifacts/canary

@@ -39,6 +39,7 @@ node scripts/repro-search.mjs --query "billy shelf" --stores "294,203"
 See:
 - `docs/release-checklist.md`
 - `docs/ai-debug-framework.md`
+- `docs/notification-test-strategy.md`
 
 ## Deployment
 - Web: Cloudflare Pages

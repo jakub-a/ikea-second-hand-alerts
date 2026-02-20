@@ -31,7 +31,7 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test('single-city and multi-city searches are consistent', async ({ page }) => {
+test('@search single-city and multi-city searches are consistent', async ({ page }) => {
   await page.goto('/');
   await page.getByPlaceholder(/Enter one IKEA product name/i).fill('billy');
   await page.locator('.search-button').click();
@@ -51,7 +51,7 @@ test('single-city and multi-city searches are consistent', async ({ page }) => {
   await expect(page.getByText(/I found 2 items/i)).toBeVisible();
 });
 
-test('notification deep-link opens alerts and keeps unread increment idempotent', async ({ page }) => {
+test('@notification deep-link opens alerts and keeps unread increment idempotent', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => {
     localStorage.setItem(
@@ -73,4 +73,29 @@ test('notification deep-link opens alerts and keeps unread increment idempotent'
   await page.getByRole('heading', { name: 'Test Alert' }).click();
   await page.getByRole('button', { name: 'Alerts' }).click();
   await expect(page.locator('.alert-badge')).toHaveCount(0);
+});
+
+test('@notification multiple alert notifications keep per-alert unread isolation', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    localStorage.setItem(
+      'ikea-alerts',
+      JSON.stringify([
+        { id: 'a1', name: 'Alert One', keywords: ['billy'], storeIds: ['294'], active: true, unreadCount: 0 },
+        { id: 'a2', name: 'Alert Two', keywords: ['tradfri'], storeIds: ['203'], active: true, unreadCount: 0 }
+      ])
+    );
+  });
+
+  await page.goto('/?tab=alerts&alertId=a1&newCount=2&notificationId=n1');
+  await page.goto('/?tab=alerts&alertId=a2&newCount=1&notificationId=n2');
+
+  const cards = page.locator('.alert-card');
+  await expect(cards.nth(0).locator('.alert-badge')).toHaveText('2');
+  await expect(cards.nth(1).locator('.alert-badge')).toHaveText('1');
+
+  await cards.nth(0).click();
+  await page.getByRole('button', { name: 'Alerts' }).click();
+  await expect(cards.nth(0).locator('.alert-badge')).toHaveCount(0);
+  await expect(cards.nth(1).locator('.alert-badge')).toHaveText('1');
 });
