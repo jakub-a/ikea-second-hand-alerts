@@ -33,3 +33,14 @@ Use this for medium/high-risk work where explicit planning is helpful.
   - [x] Worker notification integration tests
   - [x] Notification-focused Playwright smoke tests
   - [x] Daily non-blocking canary workflow
+
+## Current Task
+- Goal: Reliable per-alert "New items" state on app open + harden notification deep-link to Alerts.
+- Scope in: startup snapshot diff, alert badge UX, alert-open clear behavior, deterministic newest-first ordering, deep-link guard.
+- Scope out: worker API contract changes and push infrastructure re-architecture.
+- Plan:
+  - [x] Add startup snapshot diff and per-alert `hasNewItems` semantics in web app state.
+  - [x] Render right-aligned blue `New items (N)` badge and clear on alert open.
+  - [x] Enforce newest-to-oldest sorting using timestamp-first fallback logic.
+  - [x] Harden service-worker click handling to ensure Alerts deep-link.
+  - [x] Run local validation (`test` + `build`) and document risks/rollback notes.

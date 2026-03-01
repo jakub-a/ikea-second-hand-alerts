@@ -106,6 +106,9 @@ self.addEventListener('notificationclick', (event) => {
 
   try {
     const url = new URL(target, self.location.origin);
+    if (data.alertId && !url.searchParams.get('tab')) {
+      url.searchParams.set('tab', 'alerts');
+    }
     if (data.alertId && !url.searchParams.get('alertId')) {
       url.searchParams.set('alertId', data.alertId);
     }
