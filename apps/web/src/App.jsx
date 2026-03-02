@@ -1002,9 +1002,13 @@ export default function App() {
                 placeholder="Enter one IKEA product name, e.g. Trådfri or Billy"
                 
               />
-              <button className="search-button" onClick={applyKeywords} disabled={loading}>
+              <button
+                className="search-button"
+                onClick={applyKeywords}
+                disabled={loading}
+                aria-label={loading ? 'Searching' : 'Search'}
+              >
                 <Search size={24} strokeWidth={2} />
-                <span>{loading ? 'Searching…' : 'Search'}</span>
               </button>
             </div>
             <div className="search-header-row">
@@ -1109,7 +1113,10 @@ export default function App() {
               </>
             )}
           </section>
-          <p className="listing-version">{appAndWorkerVersion}</p>
+          <p className="listing-version">
+            <span>2026 © Jakub Andrzejewski</span>
+            <span>Made with Codex, agentation, Chrome MCP and Figma MCP</span>
+          </p>
         </>
       )}
 
