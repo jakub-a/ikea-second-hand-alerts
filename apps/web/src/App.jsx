@@ -1,6 +1,21 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { normalizeQuery, parseStoreIdList } from '../../../shared/search-utils.js';
 import { Agentation } from 'agentation';
+import {
+  Armchair,
+  Bell,
+  BellRing,
+  Cable,
+  CookingPot,
+  ExternalLink,
+  Lamp,
+  RockingChair,
+  Search,
+  SlidersHorizontal,
+  Sofa,
+  Store,
+  Tag
+} from 'lucide-react';
 
 const DEFAULT_STORE_ID = '294'; // Wroclaw (from captured request)
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || 'dev';
@@ -446,7 +461,9 @@ function HoldToggleButton({ active, onToggle }) {
 }
 
 export default function App() {
-  const shouldRenderAgentation = import.meta.env.DEV && import.meta.env.MODE !== 'test';
+  const shouldRenderAgentation =
+    import.meta.env.DEV &&
+    import.meta.env.MODE !== 'test';
   const [selectedStoreIds, setSelectedStoreIds] = useState([DEFAULT_STORE_ID]);
   const [stores, setStores] = useState(KNOWN_STORES);
   const [keywordsInput, setKeywordsInput] = useState('');
@@ -935,18 +952,6 @@ export default function App() {
 
   return (
     <div className="app">
-      {activeTab === 'listings' && (
-        <header className="hero">
-          <div className="hero-copy">
-            <p className="eyebrow">IKEA Second-Hand Watch</p>
-            <h1>Catch the good stuff before it disappears.</h1>
-            <p className="subtitle">
-              Track second-hand listings and get push alerts on your phone.
-            </p>
-            <p className="version">{appAndWorkerVersion}</p>
-          </div>
-        </header>
-      )}
       {activeTab === 'alerts' && (
         <div className="page-title">
           <h1>Alerts</h1>
@@ -962,7 +967,28 @@ export default function App() {
 
       {activeTab === 'listings' && (
         <>
-          <section className="card">
+          <section className="card listing-shell">
+            <header className="hero hero-listing">
+              <div className="hero-copy">
+                <div className="hero-title-row">
+                  <span className="hero-store-icon-wrap">
+                    <Store className="hero-store-icon" size={24} strokeWidth={1.8} />
+                  </span>
+                  <div>
+                    <h1>IKEA As-Is Watch</h1>
+                    <p className="subtitle">Never miss any as-is product again.</p>
+                  </div>
+                </div>
+                <div className="hero-icons" aria-hidden="true">
+                  <Lamp size={24} strokeWidth={1.8} />
+                  <Armchair size={24} strokeWidth={1.8} />
+                  <Cable size={24} strokeWidth={1.8} />
+                  <Sofa size={24} strokeWidth={1.8} />
+                  <RockingChair size={24} strokeWidth={1.8} />
+                  <CookingPot size={24} strokeWidth={1.8} />
+                </div>
+              </div>
+            </header>
             <div className="search-header-row">
               <h2>Search in</h2>
               {activeStoreIds.length === 0 ? (
@@ -979,12 +1005,16 @@ export default function App() {
                       </span>
                     );
                   })}
+                  <button type="button" className="tag-settings" onClick={() => setActiveTab('settings')} aria-label="Edit store selection">
+                    <SlidersHorizontal size={14} strokeWidth={1.8} />
+                  </button>
                 </div>
               )}
             </div>
          
             <div className="field-row field-row--compact">
               <input
+                className="search-input"
                 value={keywordsInput}
                 onChange={(e) => setKeywordsInput(e.target.value)}
                 onKeyDown={(event) => {
@@ -996,7 +1026,8 @@ export default function App() {
                 
               />
               <button className="search-button" onClick={applyKeywords} disabled={loading}>
-                {loading ? 'Searching…' : 'Search'}
+                <Search size={24} strokeWidth={2} />
+                <span>{loading ? 'Searching…' : 'Search'}</span>
               </button>
             </div>
             {lastSearch && (
@@ -1008,8 +1039,9 @@ export default function App() {
                     : 'Nothing is there this time'}
                 </h2>
               </div>
-              <div className="field-row">
-                <button className="ghost" onClick={openAlertModal}>
+              <div className="save-alert-row">
+                <button className="ghost save-alert-button" onClick={openAlertModal}>
+                  <Bell className="save-alert-icon" size={24} strokeWidth={1.8} />
                   Save alert for this search
                 </button>
               </div>
@@ -1033,6 +1065,13 @@ export default function App() {
                         aria-label={`Open ${offer.title} on IKEA`}
                       >
                         <article className="offer">
+                          <span
+                            className="external-link-indicator"
+                            title="Go to Ikea site"
+                            aria-label="Go to Ikea site"
+                          >
+                            <ExternalLink size={14} strokeWidth={2} />
+                          </span>
                           <div className="image">
                             {offer.image ? <img src={offer.image} alt={offer.title} /> : <div className="placeholder" />}
                           </div>
@@ -1071,6 +1110,7 @@ export default function App() {
               </>
             )}
           </section>
+          <p className="listing-version">{appAndWorkerVersion}</p>
         </>
       )}
 
@@ -1335,7 +1375,7 @@ export default function App() {
         </div>
       )}
 
-      {status && <p className="status">{status}</p>}
+      {status && activeTab !== 'listings' && <p className="status">{status}</p>}
 
       <nav className="bottom-nav">
         <button
@@ -1343,6 +1383,7 @@ export default function App() {
           className={`nav-item ${activeTab === 'listings' ? 'nav-active' : ''}`}
           onClick={() => setActiveTab('listings')}
         >
+          <Tag size={16} strokeWidth={1.8} />
           Listings
         </button>
         <button
@@ -1350,6 +1391,7 @@ export default function App() {
           className={`nav-item ${activeTab === 'alerts' ? 'nav-active' : ''}`}
           onClick={() => setActiveTab('alerts')}
         >
+          <BellRing size={16} strokeWidth={1.8} />
           Alerts
         </button>
         <button
@@ -1357,6 +1399,7 @@ export default function App() {
           className={`nav-item ${activeTab === 'settings' ? 'nav-active' : ''}`}
           onClick={() => setActiveTab('settings')}
         >
+          <SlidersHorizontal size={16} strokeWidth={1.8} />
           Settings
         </button>
       </nav>
