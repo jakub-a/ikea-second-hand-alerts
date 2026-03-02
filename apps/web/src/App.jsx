@@ -1,11 +1,28 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { normalizeQuery, parseStoreIdList } from '../../../shared/search-utils.js';
+import { Agentation } from 'agentation';
+import {
+  Armchair,
+  Bell,
+  BellRing,
+  Cable,
+  CookingPot,
+  ExternalLink,
+  Lamp,
+  RockingChair,
+  Search,
+  SlidersHorizontal,
+  Sofa,
+  Store,
+  Tag
+} from 'lucide-react';
 
 const DEFAULT_STORE_ID = '294'; // Wroclaw (from captured request)
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || 'dev';
 const DEBUG_STORAGE_KEY = 'ikea-debug-mode';
 const NOTIF_STORAGE_KEY = 'ikea-notifications-enabled';
 const HANDLED_NOTIFICATIONS_STORAGE_KEY = 'ikea-handled-notification-ids';
+const ALERT_SNAPSHOT_STORAGE_KEY = 'ikea-alert-offer-snapshot-v1';
 
 const KNOWN_STORES = [
   { id: '188', label: 'Warszawa Janki', slug: 'warszawa+janki' },
@@ -33,7 +50,8 @@ function loadAlertsFromStorage() {
       const count = Number(alert?.unreadCount);
       return {
         ...alert,
-        unreadCount: Number.isFinite(count) ? count : 0
+        unreadCount: Number.isFinite(count) ? count : 0,
+        hasNewItems: Boolean(alert?.hasNewItems)
       };
     });
   } catch (err) {
@@ -86,6 +104,61 @@ function saveHandledNotificationIds(ids) {
   localStorage.setItem(HANDLED_NOTIFICATIONS_STORAGE_KEY, JSON.stringify(ids.slice(-200)));
 }
 
+function loadAlertOfferSnapshot() {
+  try {
+    const raw = localStorage.getItem(ALERT_SNAPSHOT_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed).map(([alertId, ids]) => [
+        alertId,
+        Array.isArray(ids) ? ids.filter((item) => typeof item === 'string').slice(0, 200) : []
+      ])
+    );
+  } catch (err) {
+    return {};
+  }
+}
+
+function saveAlertOfferSnapshot(snapshot) {
+  localStorage.setItem(ALERT_SNAPSHOT_STORAGE_KEY, JSON.stringify(snapshot));
+}
+
+function parseDateToMs(value) {
+  if (!value || typeof value !== 'string') return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function parseSortOfferNumber(value) {
+  if (value === null || value === undefined) return null;
+  const numeric = Number(String(value).replace(/[^\d.-]/g, ''));
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function sortOffersNewestFirst(items) {
+  return [...items].sort((a, b) => {
+    const aTs = Number.isFinite(a?.sortTimestampMs) ? a.sortTimestampMs : null;
+    const bTs = Number.isFinite(b?.sortTimestampMs) ? b.sortTimestampMs : null;
+    if (aTs !== null || bTs !== null) {
+      if (aTs === null) return 1;
+      if (bTs === null) return -1;
+      if (aTs !== bTs) return bTs - aTs;
+    }
+
+    const aOfferNumber = Number.isFinite(a?.sortOfferNumber) ? a.sortOfferNumber : null;
+    const bOfferNumber = Number.isFinite(b?.sortOfferNumber) ? b.sortOfferNumber : null;
+    if (aOfferNumber !== null || bOfferNumber !== null) {
+      if (aOfferNumber === null) return 1;
+      if (bOfferNumber === null) return -1;
+      if (aOfferNumber !== bOfferNumber) return bOfferNumber - aOfferNumber;
+    }
+
+    return (a?.sourceIndex || 0) - (b?.sourceIndex || 0);
+  });
+}
+
 function extractOffers(payload) {
   if (!payload) return [];
   if (Array.isArray(payload.content)) return payload.content;
@@ -100,7 +173,7 @@ function extractOffers(payload) {
   return [];
 }
 
-function normalizeOffer(offer) {
+function normalizeOffer(offer, sourceIndex = 0) {
   const title = offer?.title || offer?.name || offer?.productName || 'Untitled item';
   const description = offer?.description || offer?.shortDescription || offer?.subtitle || '';
   const firstOffer = Array.isArray(offer?.offers) ? offer.offers[0] : null;
@@ -132,6 +205,14 @@ function normalizeOffer(offer) {
     '';
   const articleNumber = offer?.articleNumbers?.[0] || offer?.articleNumber || '';
   const offerNumber = firstOffer?.offerNumber || offer?.offerNumber || '';
+  const sortTimestampMs =
+    parseDateToMs(firstOffer?.createdAt) ||
+    parseDateToMs(firstOffer?.publishedAt) ||
+    parseDateToMs(firstOffer?.updatedAt) ||
+    parseDateToMs(offer?.createdAt) ||
+    parseDateToMs(offer?.publishedAt) ||
+    parseDateToMs(offer?.updatedAt);
+  const sortOfferNumber = parseSortOfferNumber(offerNumber);
   const storeId = offer?.storeId || offer?.storeID || offer?.store || '';
   const storeSlug = KNOWN_STORES.find((store) => store.id === storeId)?.slug;
   const secondHandUrl =
@@ -145,7 +226,22 @@ function normalizeOffer(offer) {
     (articleNumber
       ? `https://www.ikea.com/pl/pl/search/?q=${encodeURIComponent(articleNumber)}`
       : `https://www.ikea.com/pl/pl/search/?q=${encodeURIComponent(title)}`);
-  return { id, title, description, price, originalPrice, discountPercent, currency, image, url, condition, storeId };
+  return {
+    id,
+    title,
+    description,
+    price,
+    originalPrice,
+    discountPercent,
+    currency,
+    image,
+    url,
+    condition,
+    storeId,
+    sortTimestampMs,
+    sortOfferNumber,
+    sourceIndex
+  };
 }
 
 async function fetchOffers(storeIds, query) {
@@ -162,7 +258,8 @@ async function fetchOffers(storeIds, query) {
   const res = await fetch(`${API_BASE}/api/items?${params.toString()}`);
   if (!res.ok) throw new Error('Failed to load offers');
   const data = await res.json();
-  return extractOffers(data).map(normalizeOffer);
+  const normalized = extractOffers(data).map((offer, index) => normalizeOffer(offer, index));
+  return sortOffersNewestFirst(normalized);
 }
 
 async function requestPushPermission() {
@@ -364,6 +461,9 @@ function HoldToggleButton({ active, onToggle }) {
 }
 
 export default function App() {
+  const shouldRenderAgentation =
+    import.meta.env.DEV &&
+    import.meta.env.MODE !== 'test';
   const [selectedStoreIds, setSelectedStoreIds] = useState([DEFAULT_STORE_ID]);
   const [stores, setStores] = useState(KNOWN_STORES);
   const [keywordsInput, setKeywordsInput] = useState('');
@@ -387,6 +487,7 @@ export default function App() {
   const [workerMeta, setWorkerMeta] = useState({ versionId: 'unknown' });
   const userToggledNotificationsRef = useRef(false);
   const handledNotificationsRef = useRef(loadHandledNotificationIds());
+  const didRunStartupNewnessCheckRef = useRef(false);
   const appAndWorkerVersion = `App ${APP_VERSION} · Worker ${workerMeta.versionId}`;
 
   const activeStoreIds = useMemo(() => {
@@ -429,7 +530,7 @@ export default function App() {
     setAlerts((prev) => {
       const next = prev.map((alert) =>
         alert.id === alertId
-          ? { ...alert, unreadCount: (alert.unreadCount || 0) + increment }
+          ? { ...alert, unreadCount: (alert.unreadCount || 0) + increment, hasNewItems: true }
           : alert
       );
       saveAlertsToStorage(next);
@@ -486,7 +587,7 @@ export default function App() {
     setKeywords(nextKeywords);
     if (alert?.id) {
       const next = alerts.map((item) =>
-        item.id === alert.id ? { ...item, unreadCount: 0 } : item
+        item.id === alert.id ? { ...item, unreadCount: 0, hasNewItems: false } : item
       );
       setAlerts(next);
       saveAlertsToStorage(next);
@@ -620,6 +721,87 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (didRunStartupNewnessCheckRef.current) return;
+    didRunStartupNewnessCheckRef.current = true;
+    const activeAlerts = alerts.filter(
+      (alert) =>
+        alert.active &&
+        Array.isArray(alert.storeIds) &&
+        alert.storeIds.length > 0 &&
+        Array.isArray(alert.keywords) &&
+        alert.keywords.length > 0
+    );
+    if (activeAlerts.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    const runStartupDiffCheck = async () => {
+      const previousSnapshot = loadAlertOfferSnapshot();
+      const nextSnapshot = {};
+      const alertResults = await Promise.all(
+        activeAlerts.map(async (alert) => {
+          try {
+            const data = await fetchOffers(alert.storeIds.join(','), normalizeQuery(alert.keywords.join(' ')));
+            const ids = data.map((item) => String(item.id)).filter(Boolean).slice(0, 200);
+            nextSnapshot[alert.id] = ids;
+            const previousIds = new Set(previousSnapshot[alert.id] || []);
+            const newCount = ids.filter((id) => !previousIds.has(id)).length;
+            return { alertId: alert.id, newCount };
+          } catch (err) {
+            setDebugEvents((prev) => [
+              {
+                id: crypto.randomUUID(),
+                timestamp: new Date().toISOString(),
+                data: {
+                  type: 'startup-alert-newness-error',
+                  alertId: alert.id,
+                  error: err?.message || 'Failed to evaluate startup newness'
+                }
+              },
+              ...prev
+            ].slice(0, 10));
+            return { alertId: alert.id, error: true };
+          }
+        })
+      );
+
+      if (cancelled) return;
+      const resultByAlertId = new Map(alertResults.map((result) => [result.alertId, result]));
+      setAlerts((prev) => {
+        let changed = false;
+        const next = prev.map((alert) => {
+          const evaluation = resultByAlertId.get(alert.id);
+          if (!evaluation || evaluation.error) return alert;
+          const startupNewCount = Number(evaluation.newCount) || 0;
+          const nextUnreadCount = Math.max(Number(alert.unreadCount) || 0, startupNewCount);
+          const nextHasNewItems = nextUnreadCount > 0;
+          if (nextUnreadCount === (Number(alert.unreadCount) || 0) && nextHasNewItems === Boolean(alert.hasNewItems)) {
+            return alert;
+          }
+          changed = true;
+          return {
+            ...alert,
+            unreadCount: nextUnreadCount,
+            hasNewItems: nextHasNewItems
+          };
+        });
+        if (changed) saveAlertsToStorage(next);
+        return next;
+      });
+
+      if (Object.keys(nextSnapshot).length > 0) {
+        saveAlertOfferSnapshot(nextSnapshot);
+      }
+    };
+
+    runStartupDiffCheck();
+    return () => {
+      cancelled = true;
+    };
+  }, [alerts]);
+
+  useEffect(() => {
     if (!('serviceWorker' in navigator)) return undefined;
     const handler = (event) => {
       if (!event?.data) return;
@@ -656,7 +838,7 @@ export default function App() {
     const alertId = params.get('alertId');
     const newCount = params.get('newCount');
     const notificationId = params.get('notificationId');
-    if (alertId && newCount) {
+    if (alertId && Number(newCount) > 0) {
       applyAlertBadgeIncrement({
         alertId,
         newCount: Number(newCount),
@@ -699,7 +881,7 @@ export default function App() {
 
     if (openedAlertId) {
       const next = alerts.map((alert) =>
-        alert.id === openedAlertId ? { ...alert, unreadCount: 0 } : alert
+        alert.id === openedAlertId ? { ...alert, unreadCount: 0, hasNewItems: false } : alert
       );
       setAlerts(next);
       saveAlertsToStorage(next);
@@ -735,7 +917,8 @@ export default function App() {
         keywords,
         storeIds: activeStoreIds,
         active: true,
-        unreadCount: 0
+        unreadCount: 0,
+        hasNewItems: false
       }
     ];
     setAlerts(next);
@@ -759,23 +942,16 @@ export default function App() {
     const next = alerts.filter((alert) => alert.id !== alertId);
     setAlerts(next);
     saveAlertsToStorage(next);
+    const snapshot = loadAlertOfferSnapshot();
+    if (alertId in snapshot) {
+      delete snapshot[alertId];
+      saveAlertOfferSnapshot(snapshot);
+    }
     syncAlertsToServer(next);
   };
 
   return (
     <div className="app">
-      {activeTab === 'listings' && (
-        <header className="hero">
-          <div className="hero-copy">
-            <p className="eyebrow">IKEA Second-Hand Watch</p>
-            <h1>Catch the good stuff before it disappears.</h1>
-            <p className="subtitle">
-              Track second-hand listings and get push alerts on your phone.
-            </p>
-            <p className="version">{appAndWorkerVersion}</p>
-          </div>
-        </header>
-      )}
       {activeTab === 'alerts' && (
         <div className="page-title">
           <h1>Alerts</h1>
@@ -791,14 +967,52 @@ export default function App() {
 
       {activeTab === 'listings' && (
         <>
-          <section className="card">
-            
-            <h2>Search</h2>
-            <div className="helper-row">
+          <section className="card listing-shell">
+            <header className="hero hero-listing">
+              <div className="hero-copy">
+                <div className="hero-title-row">
+                  <span className="hero-store-icon-wrap">
+                    <Store className="hero-store-icon" size={40} strokeWidth={1.8} />
+                  </span>
+                  <div>
+                    <h1>IKEA As-Is Watch</h1>
+                    <p className="subtitle">Never miss any as-is product again.</p>
+                  </div>
+                </div>
+                <div className="hero-icons" aria-hidden="true">
+                  <Lamp size={24} strokeWidth={1.8} />
+                  <Armchair size={24} strokeWidth={1.8} />
+                  <Cable size={24} strokeWidth={1.8} />
+                  <Sofa size={24} strokeWidth={1.8} />
+                  <RockingChair size={24} strokeWidth={1.8} />
+                  <CookingPot size={24} strokeWidth={1.8} />
+                </div>
+              </div>
+            </header>
+            <div className="field-row field-row--compact">
+              <input
+                className="search-input"
+                value={keywordsInput}
+                onChange={(e) => setKeywordsInput(e.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter') return;
+                  event.preventDefault();
+                  applyKeywords();
+                }}
+                placeholder="Enter one IKEA product name, e.g. Trådfri or Billy"
+                
+              />
+              <button className="search-button" onClick={applyKeywords} disabled={loading}>
+                <Search size={24} strokeWidth={2} />
+                <span>{loading ? 'Searching…' : 'Search'}</span>
+              </button>
+            </div>
+            <div className="search-header-row">
+              <h2>Search in</h2>
               {activeStoreIds.length === 0 ? (
                 <span className="helper">None selected</span>
               ) : (
-                <div className="store-tags">
+                <div className="store-tags store-tags-scroll" aria-label="Selected stores">
                   {activeStoreIds.map((id) => {
                     const store = stores.find((s) => s.id === id);
                     const label = store ? store.label : storeLabelFor(id);
@@ -809,38 +1023,29 @@ export default function App() {
                       </span>
                     );
                   })}
+                  <button type="button" className="tag-settings" onClick={() => setActiveTab('settings')} aria-label="Edit store selection">
+                    <SlidersHorizontal size={14} strokeWidth={1.8} />
+                  </button>
                 </div>
               )}
             </div>
-         
-            <div className="field-row field-row--compact">
-              <input
-                value={keywordsInput}
-                onChange={(e) => setKeywordsInput(e.target.value)}
-                placeholder="Enter one IKEA product name, e.g. Trådfri or Billy"
-                
-              />
-              <button className="search-button" onClick={applyKeywords} disabled={loading}>
-                {loading ? 'Searching…' : 'Search'}
-              </button>
-            </div>
-          </section>
-
-          {lastSearch && (
-            <section className="card results">
+            {lastSearch && (
+              <>
               <div className="results-header">
-                <h2>Look what I found!</h2>
-                <span>
-                 I found {filteredOffers.length} items
-                </span>
+                <h2 className="results-title">
+                  {filteredOffers.length > 0
+                    ? `I found ${filteredOffers.length} item${filteredOffers.length === 1 ? '' : 's'}`
+                    : 'Nothing is there this time'}
+                </h2>
               </div>
-              <div className="field-row">
-                <button className="ghost" onClick={openAlertModal}>
+              <div className="save-alert-row">
+                <button className="ghost save-alert-button" onClick={openAlertModal}>
+                  <Bell className="save-alert-icon" size={24} strokeWidth={1.8} />
                   Save alert for this search
                 </button>
               </div>
-              {keywords.length > 0 && filteredOffers.length === 0 && offers.length > 0 && (
-                <p className="helper">No listings match your current keywords. Try a different keyword or clear them to see all items.</p>
+              {filteredOffers.length === 0 && (
+                <p className="helper">Nothing is there this time.</p>
               )}
               {[...groupedOffers.entries()].map(([storeId, storeOffers]) => (
                 <div key={storeId} className="store-group">
@@ -859,6 +1064,13 @@ export default function App() {
                         aria-label={`Open ${offer.title} on IKEA`}
                       >
                         <article className="offer">
+                          <span
+                            className="external-link-indicator"
+                            title="Go to Ikea site"
+                            aria-label="Go to Ikea site"
+                          >
+                            <ExternalLink size={14} strokeWidth={2} />
+                          </span>
                           <div className="image">
                             {offer.image ? <img src={offer.image} alt={offer.title} /> : <div className="placeholder" />}
                           </div>
@@ -894,8 +1106,10 @@ export default function App() {
                   </div>
                 </div>
               ))}
-            </section>
-          )}
+              </>
+            )}
+          </section>
+          <p className="listing-version">{appAndWorkerVersion}</p>
         </>
       )}
 
@@ -924,8 +1138,8 @@ export default function App() {
                     <div className="alert-meta">
                       <div className="alert-title-row">
                         <h3>{alert.name}</h3>
-                        {alert.unreadCount > 0 && (
-                          <span className="alert-badge">{alert.unreadCount}</span>
+                        {alert.hasNewItems && (
+                          <span className="alert-new-badge">New items ({Math.max(1, Number(alert.unreadCount) || 0)})</span>
                         )}
                       </div>
                       <p className="helper">Stores: {alert.storeIds.join(', ')}</p>
@@ -1160,7 +1374,7 @@ export default function App() {
         </div>
       )}
 
-      {status && <p className="status">{status}</p>}
+      {status && activeTab !== 'listings' && <p className="status">{status}</p>}
 
       <nav className="bottom-nav">
         <button
@@ -1168,6 +1382,7 @@ export default function App() {
           className={`nav-item ${activeTab === 'listings' ? 'nav-active' : ''}`}
           onClick={() => setActiveTab('listings')}
         >
+          <Tag size={16} strokeWidth={1.8} />
           Listings
         </button>
         <button
@@ -1175,6 +1390,7 @@ export default function App() {
           className={`nav-item ${activeTab === 'alerts' ? 'nav-active' : ''}`}
           onClick={() => setActiveTab('alerts')}
         >
+          <BellRing size={16} strokeWidth={1.8} />
           Alerts
         </button>
         <button
@@ -1182,9 +1398,11 @@ export default function App() {
           className={`nav-item ${activeTab === 'settings' ? 'nav-active' : ''}`}
           onClick={() => setActiveTab('settings')}
         >
+          <SlidersHorizontal size={16} strokeWidth={1.8} />
           Settings
         </button>
       </nav>
+      {shouldRenderAgentation && <Agentation endpoint="http://127.0.0.1:4747" />}
     </div>
   );
 }
