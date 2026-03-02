@@ -1,0 +1,10 @@
+{
+  "name": "ikea-second-hand-alerts",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "deploy:worker": "cd apps/worker && npm run deploy",
+    "deploy:web": "cd apps/web && npm run build && npx wrangler pages deploy dist --project-name=ikea-second-hand-alerts-web",
+    "deploy": "npm run deploy:worker && npm run deploy:web"
+  }
+}

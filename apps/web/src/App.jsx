@@ -972,7 +972,7 @@ export default function App() {
               <div className="hero-copy">
                 <div className="hero-title-row">
                   <span className="hero-store-icon-wrap">
-                    <Store className="hero-store-icon" size={24} strokeWidth={1.8} />
+                    <Store className="hero-store-icon" size={40} strokeWidth={1.8} />
                   </span>
                   <div>
                     <h1>IKEA As-Is Watch</h1>
@@ -989,6 +989,24 @@ export default function App() {
                 </div>
               </div>
             </header>
+            <div className="field-row field-row--compact">
+              <input
+                className="search-input"
+                value={keywordsInput}
+                onChange={(e) => setKeywordsInput(e.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter') return;
+                  event.preventDefault();
+                  applyKeywords();
+                }}
+                placeholder="Enter one IKEA product name, e.g. Trådfri or Billy"
+                
+              />
+              <button className="search-button" onClick={applyKeywords} disabled={loading}>
+                <Search size={24} strokeWidth={2} />
+                <span>{loading ? 'Searching…' : 'Search'}</span>
+              </button>
+            </div>
             <div className="search-header-row">
               <h2>Search in</h2>
               {activeStoreIds.length === 0 ? (
@@ -1010,25 +1028,6 @@ export default function App() {
                   </button>
                 </div>
               )}
-            </div>
-         
-            <div className="field-row field-row--compact">
-              <input
-                className="search-input"
-                value={keywordsInput}
-                onChange={(e) => setKeywordsInput(e.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key !== 'Enter') return;
-                  event.preventDefault();
-                  applyKeywords();
-                }}
-                placeholder="Enter one IKEA product name, e.g. Trådfri or Billy"
-                
-              />
-              <button className="search-button" onClick={applyKeywords} disabled={loading}>
-                <Search size={24} strokeWidth={2} />
-                <span>{loading ? 'Searching…' : 'Search'}</span>
-              </button>
             </div>
             {lastSearch && (
               <>
