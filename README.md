@@ -33,7 +33,7 @@ npm run test:smoke
 
 ## Search debug snapshot
 ```bash
-node scripts/repro-search.mjs --query "billy shelf" --stores "294,203"
+node scripts/repro-search.mjs --query "billy" --stores "294,203"
 ```
 
 See:
