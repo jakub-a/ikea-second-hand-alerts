@@ -1075,6 +1075,12 @@ export default function App() {
                     aria-hidden="true"
                   />
                 </div>
+                <div className="listing-empty-help" data-node-id="24:1523">
+                  <p>How it works: Say you want to buy a specific IKEA product.</p>
+                  <p>Set up an alert and get notified when it pops up in the as-is sale.</p>
+                  <p>You could even save 50%! Reserve it on the IKEA website and pick up locally.</p>
+                  <p>That&apos;s it! Oh, if you just want to browse what&apos;s out there go the Ikea site ↗</p>
+                </div>
               </div>
             )}
             {lastSearch && (

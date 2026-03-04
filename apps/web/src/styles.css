@@ -37,7 +37,12 @@ body {
 }
 
 .app.app-empty-listings {
-  min-height: calc(100dvh + 80px);
+  min-height: 100dvh;
+  padding-bottom: 120px;
+}
+
+.app.app-empty-listings .listing-version {
+  margin-top: auto;
 }
 
 .hero {
@@ -206,7 +211,7 @@ body {
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  gap: 8px;
+  gap: 24px;
   padding: 0 60px;
   min-height: clamp(260px, calc(100dvh - 400px), 360px);
 }
@@ -229,7 +234,8 @@ body {
   color: #111111;
   font-size: 12px;
   line-height: 24px;
-  font-weight: 400;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .listing-empty-artwork {
@@ -281,6 +287,20 @@ body {
   width: 15.666px;
   height: 14.431px;
   transform: rotate(-75deg);
+}
+
+.listing-empty-help {
+  max-width: 392px;
+  width: 100%;
+  color: rgba(17, 17, 17, 0.5);
+  text-align: center;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.listing-empty-help p {
+  margin: 0;
 }
 
 .card h2 {
