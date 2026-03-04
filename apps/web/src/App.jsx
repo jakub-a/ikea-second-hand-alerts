@@ -23,6 +23,12 @@ const DEBUG_STORAGE_KEY = 'ikea-debug-mode';
 const NOTIF_STORAGE_KEY = 'ikea-notifications-enabled';
 const HANDLED_NOTIFICATIONS_STORAGE_KEY = 'ikea-handled-notification-ids';
 const ALERT_SNAPSHOT_STORAGE_KEY = 'ikea-alert-offer-snapshot-v1';
+const EMPTY_STATE_ARTWORK_SRC = '/empty-state/plush.png';
+const EMPTY_STATE_SEARCH_ICON_SRC = '/empty-state/search-icon.svg';
+const EMPTY_STATE_SQUIGGLE_TOP_LEFT_SRC = '/empty-state/squiggle-top-left.svg';
+const EMPTY_STATE_SQUIGGLE_LEFT_SRC = '/empty-state/squiggle-left.svg';
+const EMPTY_STATE_SQUIGGLE_RIGHT_SRC = '/empty-state/squiggle-right.svg';
+const EMPTY_STATE_SQUIGGLE_SMALL_SRC = '/empty-state/squiggle-small.svg';
 
 const KNOWN_STORES = [
   { id: '188', label: 'Warszawa Janki', slug: 'warszawa+janki' },
@@ -489,6 +495,7 @@ export default function App() {
   const handledNotificationsRef = useRef(loadHandledNotificationIds());
   const didRunStartupNewnessCheckRef = useRef(false);
   const appAndWorkerVersion = `App ${APP_VERSION} · Worker ${workerMeta.versionId}`;
+  const isListingsEmpty = activeTab === 'listings' && !lastSearch;
 
   const activeStoreIds = useMemo(() => {
     return selectedStoreIds.length > 0 ? selectedStoreIds : [];
@@ -542,6 +549,7 @@ export default function App() {
     const match = stores.find((store) => store.id === id);
     return match ? match.label : 'Unknown store';
   };
+  const hasUnreadAlerts = alerts.some((alert) => (Number(alert?.unreadCount) || 0) > 0);
 
   const searchWith = async (storeIds, keywordList) => {
     try {
@@ -951,7 +959,7 @@ export default function App() {
   };
 
   return (
-    <div className="app">
+    <div className={`app${isListingsEmpty ? ' app-empty-listings' : ''}`}>
       {activeTab === 'alerts' && (
         <div className="page-title">
           <h1>Alerts</h1>
@@ -1001,7 +1009,6 @@ export default function App() {
                   placeholder="Enter one IKEA product name, e.g. Trådfri or Billy"
                 />
                 <div className="search-inline-meta" aria-label="Selected stores">
-                  <span className="search-in-label">in</span>
                   {activeStoreIds.slice(0, 2).map((id) => {
                     const store = stores.find((s) => s.id === id);
                     const label = store ? store.label : storeLabelFor(id);
@@ -1023,17 +1030,67 @@ export default function App() {
                 </button>
               </div>
             </header>
+            {!lastSearch && (
+              <div className="listing-empty-state" data-node-id="23:1467">
+                <div className="listing-empty-copy-row" data-node-id="23:1516">
+                  <img
+                    className="listing-empty-search-icon"
+                    src={EMPTY_STATE_SEARCH_ICON_SRC}
+                    alt=""
+                    aria-hidden="true"
+                  />
+                  <p className="listing-empty-copy" data-node-id="23:1498">
+                    Search for something in a store nearby
+                  </p>
+                </div>
+                <div className="listing-empty-artwork" data-node-id="23:1513">
+                  <img
+                    className="listing-empty-main-image"
+                    src={EMPTY_STATE_ARTWORK_SRC}
+                    alt=""
+                    aria-hidden="true"
+                  />
+                  <img
+                    className="listing-empty-squiggle listing-empty-squiggle-top-left"
+                    src={EMPTY_STATE_SQUIGGLE_TOP_LEFT_SRC}
+                    alt=""
+                    aria-hidden="true"
+                  />
+                  <img
+                    className="listing-empty-squiggle listing-empty-squiggle-left"
+                    src={EMPTY_STATE_SQUIGGLE_LEFT_SRC}
+                    alt=""
+                    aria-hidden="true"
+                  />
+                  <img
+                    className="listing-empty-squiggle listing-empty-squiggle-right"
+                    src={EMPTY_STATE_SQUIGGLE_RIGHT_SRC}
+                    alt=""
+                    aria-hidden="true"
+                  />
+                  <img
+                    className="listing-empty-squiggle listing-empty-squiggle-small"
+                    src={EMPTY_STATE_SQUIGGLE_SMALL_SRC}
+                    alt=""
+                    aria-hidden="true"
+                  />
+                </div>
+              </div>
+            )}
             {lastSearch && (
-              <>
+              <div className="listing-results">
               <div className="results-header">
-                <h2 className="results-title">
+                <h4 className="results-title">
                   {filteredOffers.length > 0
                     ? `🎉 Yaay! I found ${filteredOffers.length} item${filteredOffers.length === 1 ? '' : 's'}`
                     : 'Nothing is there this time'}
-                </h2>
+                </h4>
+              </div>
+              <div className="save-alert-row save-alert-sticky-row">
                 <button className="ghost save-alert-button" onClick={openAlertModal}>
                   <Bell className="save-alert-icon" size={18} strokeWidth={1.8} />
-                  Save alert for this search
+                  <span className="save-alert-label-desktop">Save alert for this search</span>
+                  <span className="save-alert-label-mobile">Save alert</span>
                 </button>
               </div>
               {filteredOffers.length === 0 && (
@@ -1098,7 +1155,7 @@ export default function App() {
                   </div>
                 </div>
               ))}
-              </>
+              </div>
             )}
           </section>
           <p className="listing-version">
@@ -1387,6 +1444,7 @@ export default function App() {
         >
           <BellRing size={16} strokeWidth={1.8} />
           Alerts
+          {hasUnreadAlerts && <span className="nav-alert-dot" aria-hidden="true" />}
         </button>
         <button
           type="button"

@@ -54,3 +54,23 @@ Use this for medium/high-risk work where explicit planning is helpful.
   - [x] Update listing page JSX/CSS to match new composition and spacing.
   - [x] Preserve existing app behavior while aligning visuals (search/open links/alerts actions).
   - [x] Run local validation (`test` + `build`) and capture rollback notes.
+
+## Current Task
+- Goal: Implement Listing-page pre-search empty state from Figma node `23:1467`.
+- Scope in: empty-state-only UI for `!lastSearch` (copy, plush artwork, squiggles, spacing), desktop + mobile responsiveness.
+- Scope out: zero-results state, alert logic, worker/API behavior.
+- Plan:
+  - [x] Fetch Figma node context + screenshot and extract exact sizing/positions.
+  - [x] Add local artwork/squiggle assets under `apps/web/public/empty-state`.
+  - [x] Implement `!lastSearch` empty-state markup + CSS in listings view.
+  - [x] Validate in Chrome MCP and run `cd apps/web && npm run build`.
+
+## Current Task
+- Goal: Update empty-state node `23:1467` to latest Figma revision with centered content and refreshed assets.
+- Scope in: center empty-state content on both axes, add search icon row, refresh changed artwork/squiggle assets.
+- Scope out: search results states, alerts flow, worker/API logic.
+- Plan:
+  - [x] Pull latest Figma context/screenshot for node `23:1467`.
+  - [x] Replace local empty-state assets with the updated Figma exports.
+  - [x] Update JSX/CSS to match centered composition and new artwork details.
+  - [x] Validate in Chrome MCP and run `cd apps/web && npm run build`.
