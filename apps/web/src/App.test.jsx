@@ -18,6 +18,7 @@ describe('App', () => {
   it('renders default listings tab', () => {
     render(<App />);
     expect(screen.getByRole('button', { name: 'Listings' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Search in' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'IKEA As-Is Watch' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Search' })).toBeInTheDocument();
   });
 });

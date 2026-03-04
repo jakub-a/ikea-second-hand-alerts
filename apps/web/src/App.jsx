@@ -976,7 +976,7 @@ export default function App() {
                   </span>
                   <div>
                     <h1>IKEA As-Is Watch</h1>
-                    <p className="subtitle">Never miss any as-is product again.</p>
+                    <p className="subtitle">Great deals on great design.</p>
                   </div>
                 </div>
                 <div className="hero-icons" aria-hidden="true">
@@ -988,63 +988,51 @@ export default function App() {
                   <CookingPot size={24} strokeWidth={1.8} />
                 </div>
               </div>
-            </header>
-            <div className="field-row field-row--compact">
-              <input
-                className="search-input"
-                value={keywordsInput}
-                onChange={(e) => setKeywordsInput(e.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key !== 'Enter') return;
-                  event.preventDefault();
-                  applyKeywords();
-                }}
-                placeholder="Enter one IKEA product name, e.g. Trådfri or Billy"
-                
-              />
-              <button
-                className="search-button"
-                onClick={applyKeywords}
-                disabled={loading}
-                aria-label={loading ? 'Searching' : 'Search'}
-              >
-                <Search size={24} strokeWidth={2} />
-              </button>
-            </div>
-            <div className="search-header-row">
-              <h2>Search in</h2>
-              {activeStoreIds.length === 0 ? (
-                <span className="helper">None selected</span>
-              ) : (
-                <div className="store-tags store-tags-scroll" aria-label="Selected stores">
-                  {activeStoreIds.map((id) => {
+              <div className="field-row field-row--compact">
+                <input
+                  className="search-input"
+                  value={keywordsInput}
+                  onChange={(e) => setKeywordsInput(e.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter') return;
+                    event.preventDefault();
+                    applyKeywords();
+                  }}
+                  placeholder="Enter one IKEA product name, e.g. Trådfri or Billy"
+                />
+                <div className="search-inline-meta" aria-label="Selected stores">
+                  <span className="search-in-label">in</span>
+                  {activeStoreIds.slice(0, 2).map((id) => {
                     const store = stores.find((s) => s.id === id);
                     const label = store ? store.label : storeLabelFor(id);
                     return (
-                      <span key={id} className="tag">
-                        <span className="tag-name">{label}</span>
-                        <span className="tag-id">ID: {id}</span>
+                      <span key={id} className="search-chip">
+                        <span className="search-chip-name">{label}</span>
+                        <span className="search-chip-id">ID:{id}</span>
                       </span>
                     );
                   })}
-                  <button type="button" className="tag-settings" onClick={() => setActiveTab('settings')} aria-label="Edit store selection">
-                    <SlidersHorizontal size={14} strokeWidth={1.8} />
-                  </button>
                 </div>
-              )}
-            </div>
+                <button
+                  className="search-button"
+                  onClick={applyKeywords}
+                  disabled={loading}
+                  aria-label={loading ? 'Searching' : 'Search'}
+                >
+                  <Search size={18} strokeWidth={2} />
+                </button>
+              </div>
+            </header>
             {lastSearch && (
               <>
               <div className="results-header">
                 <h2 className="results-title">
                   {filteredOffers.length > 0
-                    ? `I found ${filteredOffers.length} item${filteredOffers.length === 1 ? '' : 's'}`
+                    ? `🎉 Yaay! I found ${filteredOffers.length} item${filteredOffers.length === 1 ? '' : 's'}`
                     : 'Nothing is there this time'}
                 </h2>
-              </div>
-              <div className="save-alert-row">
                 <button className="ghost save-alert-button" onClick={openAlertModal}>
-                  <Bell className="save-alert-icon" size={24} strokeWidth={1.8} />
+                  <Bell className="save-alert-icon" size={18} strokeWidth={1.8} />
                   Save alert for this search
                 </button>
               </div>
@@ -1114,8 +1102,8 @@ export default function App() {
             )}
           </section>
           <p className="listing-version">
-            <span>2026 © Jakub Andrzejewski</span>
-            <span>Made with Codex, agentation, Chrome MCP and Figma MCP</span>
+            <span>2026 ©️ Jakub Andrzejewski</span>
+            <span>Build with Codex, Figma, Agentation, Chrome MCP</span>
           </p>
         </>
       )}
