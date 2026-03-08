@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
-import { normalizeQuery, parseStoreIdList } from '../../../shared/search-utils.js';
+import { normalizeQuery } from '../../../shared/search-utils.js';
 import { Agentation } from 'agentation';
 import {
   Armchair,
@@ -16,455 +16,42 @@ import {
   Store,
   Tag
 } from 'lucide-react';
-
-const DEFAULT_STORE_ID = '294'; // Wroclaw (from captured request)
-const APP_VERSION = import.meta.env.VITE_APP_VERSION || 'dev';
-const DEBUG_STORAGE_KEY = 'ikea-debug-mode';
-const NOTIF_STORAGE_KEY = 'ikea-notifications-enabled';
-const HANDLED_NOTIFICATIONS_STORAGE_KEY = 'ikea-handled-notification-ids';
-const ALERT_SNAPSHOT_STORAGE_KEY = 'ikea-alert-offer-snapshot-v1';
-const EMPTY_STATE_ARTWORK_SRC = '/empty-state/plush.png';
-const EMPTY_STATE_SEARCH_ICON_SRC = '/empty-state/search-icon.svg';
-const EMPTY_STATE_SQUIGGLE_TOP_LEFT_SRC = '/empty-state/squiggle-top-left.svg';
-const EMPTY_STATE_SQUIGGLE_LEFT_SRC = '/empty-state/squiggle-left.svg';
-const EMPTY_STATE_SQUIGGLE_RIGHT_SRC = '/empty-state/squiggle-right.svg';
-const EMPTY_STATE_SQUIGGLE_SMALL_SRC = '/empty-state/squiggle-small.svg';
-
-const KNOWN_STORES = [
-  { id: '188', label: 'Warszawa Janki', slug: 'warszawa+janki' },
-  { id: '203', label: 'Gdańsk', slug: 'gdańsk' },
-  { id: '204', label: 'Kraków', slug: 'kraków' },
-  { id: '205', label: 'Poznań', slug: 'poznań' },
-  { id: '294', label: 'Wrocław', slug: 'wrocław' },
-  { id: '306', label: 'Katowice', slug: 'katowice' },
-  { id: '307', label: 'Warszawa Targówek', slug: 'warszawa+targówek' },
-  { id: '311', label: 'Lublin', slug: 'lublin' },
-  { id: '329', label: 'Łódź', slug: 'łódź' },
-  { id: '429', label: 'Bydgoszcz', slug: 'bydgoszcz' }
-];
-
-const API_BASE = import.meta.env.VITE_API_BASE || '';
-const ALERTS_STORAGE_KEY = 'ikea-alerts';
-
-function loadAlertsFromStorage() {
-  try {
-    const raw = localStorage.getItem(ALERTS_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map((alert) => {
-      const count = Number(alert?.unreadCount);
-      return {
-        ...alert,
-        unreadCount: Number.isFinite(count) ? count : 0,
-        hasNewItems: Boolean(alert?.hasNewItems)
-      };
-    });
-  } catch (err) {
-    return [];
-  }
-}
-
-function saveAlertsToStorage(alerts) {
-  localStorage.setItem(ALERTS_STORAGE_KEY, JSON.stringify(alerts));
-}
-
-function loadDebugFlag() {
-  try {
-    return localStorage.getItem(DEBUG_STORAGE_KEY) === 'true';
-  } catch (err) {
-    return false;
-  }
-}
-
-function saveDebugFlag(value) {
-  localStorage.setItem(DEBUG_STORAGE_KEY, value ? 'true' : 'false');
-}
-
-function loadNotificationFlag() {
-  try {
-    const value = localStorage.getItem(NOTIF_STORAGE_KEY);
-    if (value === null) return null;
-    return value === 'true';
-  } catch (err) {
-    return null;
-  }
-}
-
-function saveNotificationFlag(value) {
-  localStorage.setItem(NOTIF_STORAGE_KEY, value ? 'true' : 'false');
-}
-
-function loadHandledNotificationIds() {
-  try {
-    const raw = localStorage.getItem(HANDLED_NOTIFICATIONS_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : [];
-  } catch (err) {
-    return [];
-  }
-}
-
-function saveHandledNotificationIds(ids) {
-  localStorage.setItem(HANDLED_NOTIFICATIONS_STORAGE_KEY, JSON.stringify(ids.slice(-200)));
-}
-
-function loadAlertOfferSnapshot() {
-  try {
-    const raw = localStorage.getItem(ALERT_SNAPSHOT_STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    return Object.fromEntries(
-      Object.entries(parsed).map(([alertId, ids]) => [
-        alertId,
-        Array.isArray(ids) ? ids.filter((item) => typeof item === 'string').slice(0, 200) : []
-      ])
-    );
-  } catch (err) {
-    return {};
-  }
-}
-
-function saveAlertOfferSnapshot(snapshot) {
-  localStorage.setItem(ALERT_SNAPSHOT_STORAGE_KEY, JSON.stringify(snapshot));
-}
-
-function parseDateToMs(value) {
-  if (!value || typeof value !== 'string') return null;
-  const ms = Date.parse(value);
-  return Number.isFinite(ms) ? ms : null;
-}
-
-function parseSortOfferNumber(value) {
-  if (value === null || value === undefined) return null;
-  const numeric = Number(String(value).replace(/[^\d.-]/g, ''));
-  return Number.isFinite(numeric) ? numeric : null;
-}
-
-function sortOffersNewestFirst(items) {
-  return [...items].sort((a, b) => {
-    const aTs = Number.isFinite(a?.sortTimestampMs) ? a.sortTimestampMs : null;
-    const bTs = Number.isFinite(b?.sortTimestampMs) ? b.sortTimestampMs : null;
-    if (aTs !== null || bTs !== null) {
-      if (aTs === null) return 1;
-      if (bTs === null) return -1;
-      if (aTs !== bTs) return bTs - aTs;
-    }
-
-    const aOfferNumber = Number.isFinite(a?.sortOfferNumber) ? a.sortOfferNumber : null;
-    const bOfferNumber = Number.isFinite(b?.sortOfferNumber) ? b.sortOfferNumber : null;
-    if (aOfferNumber !== null || bOfferNumber !== null) {
-      if (aOfferNumber === null) return 1;
-      if (bOfferNumber === null) return -1;
-      if (aOfferNumber !== bOfferNumber) return bOfferNumber - aOfferNumber;
-    }
-
-    return (a?.sourceIndex || 0) - (b?.sourceIndex || 0);
-  });
-}
-
-function extractOffers(payload) {
-  if (!payload) return [];
-  if (Array.isArray(payload.content)) return payload.content;
-  if (Array.isArray(payload.offers)) return payload.offers;
-  if (Array.isArray(payload.items)) return payload.items;
-  if (Array.isArray(payload.groupedOffers)) return payload.groupedOffers;
-  if (Array.isArray(payload.groups)) {
-    const grouped = payload.groups.flatMap((group) => group?.offers || []);
-    if (grouped.length > 0) return grouped;
-  }
-  if (Array.isArray(payload.data)) return payload.data;
-  return [];
-}
-
-function normalizeOffer(offer, sourceIndex = 0) {
-  const title = offer?.title || offer?.name || offer?.productName || 'Untitled item';
-  const description = offer?.description || offer?.shortDescription || offer?.subtitle || '';
-  const firstOffer = Array.isArray(offer?.offers) ? offer.offers[0] : null;
-  const price =
-    firstOffer?.price ||
-    offer?.minPrice ||
-    offer?.price?.current ||
-    offer?.price ||
-    offer?.salesPrice ||
-    null;
-  const originalPrice = offer?.originalPrice || offer?.price?.original || null;
-  const discountPercent =
-    originalPrice && price
-      ? Math.round(((Number(originalPrice) - Number(price)) / Number(originalPrice)) * 100)
-      : null;
-  const currency = offer?.currency || offer?.price?.currency || 'PLN';
-  const image = offer?.heroImage || offer?.image?.url || offer?.image || offer?.media?.[0]?.url || '';
-  const id =
-    firstOffer?.id ||
-    offer?.id ||
-    offer?.offerId ||
-    offer?.articleNumbers?.[0] ||
-    offer?.articleNumber ||
-    title;
-  const condition =
-    firstOffer?.productConditionTitle ||
-    offer?.productConditionTitle ||
-    firstOffer?.productConditionCode ||
-    '';
-  const articleNumber = offer?.articleNumbers?.[0] || offer?.articleNumber || '';
-  const offerNumber = firstOffer?.offerNumber || offer?.offerNumber || '';
-  const sortTimestampMs =
-    parseDateToMs(firstOffer?.createdAt) ||
-    parseDateToMs(firstOffer?.publishedAt) ||
-    parseDateToMs(firstOffer?.updatedAt) ||
-    parseDateToMs(offer?.createdAt) ||
-    parseDateToMs(offer?.publishedAt) ||
-    parseDateToMs(offer?.updatedAt);
-  const sortOfferNumber = parseSortOfferNumber(offerNumber);
-  const storeId = offer?.storeId || offer?.storeID || offer?.store || '';
-  const storeSlug = KNOWN_STORES.find((store) => store.id === storeId)?.slug;
-  const secondHandUrl =
-    offerNumber && storeSlug
-      ? `https://www.ikea.com/pl/pl/second-hand/buy-from-ikea/#/${storeSlug}/${offerNumber}`
-      : '';
-  const url =
-    offer?.url ||
-    offer?.productUrl ||
-    secondHandUrl ||
-    (articleNumber
-      ? `https://www.ikea.com/pl/pl/search/?q=${encodeURIComponent(articleNumber)}`
-      : `https://www.ikea.com/pl/pl/search/?q=${encodeURIComponent(title)}`);
-  return {
-    id,
-    title,
-    description,
-    price,
-    originalPrice,
-    discountPercent,
-    currency,
-    image,
-    url,
-    condition,
-    storeId,
-    sortTimestampMs,
-    sortOfferNumber,
-    sourceIndex
-  };
-}
-
-async function fetchOffers(storeIds, query) {
-  const normalizedStoreIds = parseStoreIdList(storeIds).join(',');
-  const normalizedQuery = normalizeQuery(query);
-  const params = new URLSearchParams({
-    languageCode: 'pl',
-    size: '32',
-    storeIds: normalizedStoreIds,
-    page: '0',
-    allPages: '1'
-  });
-  if (normalizedQuery) params.set('query', normalizedQuery);
-  const res = await fetch(`${API_BASE}/api/items?${params.toString()}`);
-  if (!res.ok) throw new Error('Failed to load offers');
-  const data = await res.json();
-  const normalized = extractOffers(data).map((offer, index) => normalizeOffer(offer, index));
-  return sortOffersNewestFirst(normalized);
-}
-
-async function requestPushPermission() {
-  if (!('Notification' in window)) throw new Error('Notifications not supported');
-  const permission = await Notification.requestPermission();
-  if (permission !== 'granted') throw new Error('Permission denied');
-  return permission;
-}
-
-function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
-  return outputArray;
-}
-
-async function subscribeToPush({ keywords, storeIds }) {
-  if (!('serviceWorker' in navigator)) throw new Error('Service workers not supported');
-  const registration = await navigator.serviceWorker.ready;
-  if (!registration?.pushManager) throw new Error('Push not supported on this device');
-  const vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
-  if (!vapidKey) throw new Error('Missing VITE_VAPID_PUBLIC_KEY');
-  const subscription = await registration.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: urlBase64ToUint8Array(vapidKey)
-  });
-
-  const res = await fetch(`${API_BASE}/api/subscribe`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ subscription, keywords, storeIds })
-  });
-
-  if (!res.ok) {
-    let detail = '';
-    try {
-      const data = await res.json();
-      detail = data?.error ? ` (${data.error})` : '';
-    } catch (err) {
-      detail = '';
-    }
-    throw new Error(`Failed to save subscription${detail}`);
-  }
-  return subscription;
-}
-
-async function unsubscribeFromPush() {
-  if (!('serviceWorker' in navigator)) return;
-  const registration = await navigator.serviceWorker.ready;
-  if (!registration?.pushManager) return;
-  const subscription = await registration.pushManager.getSubscription();
-  if (!subscription) return;
-
-  await fetch(`${API_BASE}/api/unsubscribe`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ endpoint: subscription.endpoint })
-  });
-
-  await subscription.unsubscribe();
-}
-
-async function sendTestNotification() {
-  if (!('serviceWorker' in navigator)) throw new Error('Service workers not supported');
-  const registration = await navigator.serviceWorker.ready;
-  if (!registration?.pushManager) throw new Error('Push not supported on this device');
-  const subscription = await registration.pushManager.getSubscription();
-  if (!subscription) throw new Error('Enable push alerts first.');
-
-  const res = await fetch(`${API_BASE}/api/test-notification`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ endpoint: subscription.endpoint })
-  });
-
-  if (!res.ok) throw new Error('Failed to send test notification.');
-  const data = await res.json();
-  return data?.status || 'ok';
-}
-
-async function runAlertCheckNow(force = false) {
-  const url = force ? `${API_BASE}/api/run-alerts?force=1` : `${API_BASE}/api/run-alerts`;
-  const res = await fetch(url, {
-    method: 'POST'
-  });
-  if (!res.ok) throw new Error('Failed to run alert check.');
-}
-
-async function sendAlertTest(alert) {
-  if (!('serviceWorker' in navigator)) throw new Error('Service workers not supported');
-  const registration = await navigator.serviceWorker.ready;
-  if (!registration?.pushManager) throw new Error('Push not supported on this device');
-  const subscription = await registration.pushManager.getSubscription();
-  if (!subscription) throw new Error('Enable push alerts first.');
-
-  const res = await fetch(`${API_BASE}/api/test-alert`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ endpoint: subscription.endpoint, alert })
-  });
-  if (!res.ok) throw new Error('Failed to send alert test.');
-  const data = await res.json();
-  return data?.status || 'ok';
-}
-
-async function fetchDebugSubscription() {
-  if (!('serviceWorker' in navigator)) throw new Error('Service workers not supported');
-  const registration = await navigator.serviceWorker.ready;
-  if (!registration?.pushManager) throw new Error('Push not supported on this device');
-  const subscription = await registration.pushManager.getSubscription();
-  if (!subscription) throw new Error('Enable push alerts first.');
-  const res = await fetch(
-    `${API_BASE}/api/debug-subscription?endpoint=${encodeURIComponent(subscription.endpoint)}`
-  );
-  if (!res.ok) throw new Error('Failed to load subscription debug.');
-  return res.json();
-}
-
-async function syncAlertsToServer(alerts) {
-  const registration = await navigator.serviceWorker.ready;
-  const subscription = await registration.pushManager.getSubscription();
-  if (!subscription) return;
-
-  await fetch(`${API_BASE}/api/alerts`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ endpoint: subscription.endpoint, alerts })
-  });
-}
-
-function createHoldHandler({ onComplete }) {
-  let timer = null;
-  let start = 0;
-  const duration = 800;
-
-  const startHold = (setProgress) => {
-    start = Date.now();
-    timer = setInterval(() => {
-      const elapsed = Date.now() - start;
-      const next = Math.min(100, Math.round((elapsed / duration) * 100));
-      setProgress(next);
-      if (next >= 100) {
-        clearInterval(timer);
-        timer = null;
-        onComplete();
-      }
-    }, 16);
-  };
-
-  const stopHold = (setProgress) => {
-    if (timer) {
-      clearInterval(timer);
-      timer = null;
-    }
-    setProgress(0);
-  };
-
-  return { startHold, stopHold };
-}
-
-function HoldToggleButton({ active, onToggle }) {
-  const [progress, setProgress] = useState(0);
-  const { startHold, stopHold } = useMemo(
-    () => createHoldHandler({ onComplete: onToggle }),
-    [onToggle]
-  );
-
-  const label = active ? 'Deactivate' : 'Activate';
-  return (
-    <button
-      type="button"
-      className={`hold-button ${active ? 'hold-active' : ''}`}
-      onClick={(event) => event.stopPropagation()}
-      onMouseDown={(event) => {
-        event.stopPropagation();
-        startHold(setProgress);
-      }}
-      onMouseUp={(event) => {
-        event.stopPropagation();
-        stopHold(setProgress);
-      }}
-      onMouseLeave={() => stopHold(setProgress)}
-      onTouchStart={(event) => {
-        event.stopPropagation();
-        startHold(setProgress);
-      }}
-      onTouchEnd={(event) => {
-        event.stopPropagation();
-        stopHold(setProgress);
-      }}
-      onTouchCancel={() => stopHold(setProgress)}
-    >
-      <span className="hold-fill" style={{ width: `${progress}%` }} />
-      <span className="hold-label">{label}</span>
-    </button>
-  );
-}
+import {
+  APP_VERSION,
+  API_BASE,
+  DEFAULT_STORE_ID,
+  EMPTY_STATE_ARTWORK_SRC,
+  EMPTY_STATE_SEARCH_ICON_SRC,
+  EMPTY_STATE_SQUIGGLE_LEFT_SRC,
+  EMPTY_STATE_SQUIGGLE_RIGHT_SRC,
+  EMPTY_STATE_SQUIGGLE_SMALL_SRC,
+  EMPTY_STATE_SQUIGGLE_TOP_LEFT_SRC,
+  KNOWN_STORES
+} from './constants.js';
+import {
+  loadAlertOfferSnapshot,
+  loadAlertsFromStorage,
+  loadDebugFlag,
+  loadHandledNotificationIds,
+  loadNotificationFlag,
+  saveAlertOfferSnapshot,
+  saveAlertsToStorage,
+  saveDebugFlag,
+  saveHandledNotificationIds,
+  saveNotificationFlag
+} from './lib/storage.js';
+import { fetchOffers, sortOffersNewestFirst } from './lib/offers.js';
+import {
+  fetchDebugSubscription,
+  requestPushPermission,
+  runAlertCheckNow,
+  sendAlertTest,
+  sendTestNotification,
+  subscribeToPush,
+  syncAlertsToServer,
+  unsubscribeFromPush
+} from './lib/push.js';
+import { HoldToggleButton } from './components/HoldToggleButton.jsx';
 
 export default function App() {
   const shouldRenderAgentation =
@@ -564,7 +151,12 @@ export default function App() {
         return;
       }
       const query = normalizeQuery(keywordList.join(' '));
-      const data = await fetchOffers(storeIds.join(','), query);
+      const data = await fetchOffers({
+        apiBase: API_BASE,
+        stores: KNOWN_STORES,
+        storeIds: storeIds.join(','),
+        query
+      });
       setOffers(data);
       setStatus(`Loaded ${data.length} items.`);
       setLastSearch({ storeIds, keywords: keywordList });
@@ -630,10 +222,15 @@ export default function App() {
           setNotificationPermission(Notification.permission);
         }
       }, 300);
-      await subscribeToPush({ keywords, storeIds: activeStoreIds });
+      await subscribeToPush({
+        apiBase: API_BASE,
+        keywords,
+        storeIds: activeStoreIds,
+        vapidKey: import.meta.env.VITE_VAPID_PUBLIC_KEY
+      });
       setSubscribed(true);
       setStatus('Push alerts enabled.');
-      await syncAlertsToServer(alerts);
+      await syncAlertsToServer(API_BASE, alerts);
     } catch (err) {
       setStatus(err.message || 'Failed to enable alerts');
     }
@@ -642,7 +239,7 @@ export default function App() {
   const handleUnsubscribe = async () => {
     try {
       setStatus('');
-      await unsubscribeFromPush();
+      await unsubscribeFromPush(API_BASE);
       setSubscribed(false);
       setStatus('Push alerts disabled.');
     } catch (err) {
@@ -750,7 +347,12 @@ export default function App() {
       const alertResults = await Promise.all(
         activeAlerts.map(async (alert) => {
           try {
-            const data = await fetchOffers(alert.storeIds.join(','), normalizeQuery(alert.keywords.join(' ')));
+            const data = await fetchOffers({
+              apiBase: API_BASE,
+              stores: KNOWN_STORES,
+              storeIds: alert.storeIds.join(','),
+              query: normalizeQuery(alert.keywords.join(' '))
+            });
             const ids = data.map((item) => String(item.id)).filter(Boolean).slice(0, 200);
             nextSnapshot[alert.id] = ids;
             const previousIds = new Set(previousSnapshot[alert.id] || []);
@@ -931,7 +533,7 @@ export default function App() {
     ];
     setAlerts(next);
     saveAlertsToStorage(next);
-    syncAlertsToServer(next);
+    syncAlertsToServer(API_BASE, next);
     setStatus('Alert created.');
     setIsAlertModalOpen(false);
   };
@@ -942,7 +544,7 @@ export default function App() {
     );
     setAlerts(next);
     saveAlertsToStorage(next);
-    syncAlertsToServer(next);
+    syncAlertsToServer(API_BASE, next);
   };
 
   const deleteAlert = (alertId) => {
@@ -955,7 +557,7 @@ export default function App() {
       delete snapshot[alertId];
       saveAlertOfferSnapshot(snapshot);
     }
-    syncAlertsToServer(next);
+    syncAlertsToServer(API_BASE, next);
   };
 
   return (
@@ -1214,7 +816,7 @@ export default function App() {
                           event.stopPropagation();
                           try {
                             setStatus('');
-                            const result = await sendAlertTest(alert);
+                            const result = await sendAlertTest(API_BASE, alert);
                             setStatus(`Alert test sent. Status: ${result}`);
                           } catch (err) {
                             setStatus(err.message || 'Failed to send alert test.');
@@ -1329,7 +931,7 @@ export default function App() {
                     onClick={async () => {
                       try {
                         setStatus('');
-                        const result = await sendTestNotification();
+                        const result = await sendTestNotification(API_BASE);
                         setStatus(`Test notification sent. Status: ${result}`);
                       } catch (err) {
                         setStatus(err.message || 'Failed to send test notification.');
@@ -1343,7 +945,7 @@ export default function App() {
                     onClick={async () => {
                       try {
                         setStatus('');
-                        await runAlertCheckNow();
+                        await runAlertCheckNow(API_BASE);
                         setStatus('Alert check triggered.');
                       } catch (err) {
                         setStatus(err.message || 'Failed to run alert check.');
@@ -1357,7 +959,7 @@ export default function App() {
                     onClick={async () => {
                       try {
                         setStatus('');
-                        await runAlertCheckNow(true);
+                        await runAlertCheckNow(API_BASE, true);
                         setStatus('Forced alert check triggered.');
                       } catch (err) {
                         setStatus(err.message || 'Failed to run alert check.');
@@ -1371,7 +973,7 @@ export default function App() {
                     onClick={async () => {
                       try {
                         setStatus('');
-                        const data = await fetchDebugSubscription();
+                        const data = await fetchDebugSubscription(API_BASE);
                         setDebugEvents((prev) => [
                           {
                             id: crypto.randomUUID(),

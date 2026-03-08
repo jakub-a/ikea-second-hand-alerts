@@ -74,3 +74,23 @@ Use this for medium/high-risk work where explicit planning is helpful.
   - [x] Replace local empty-state assets with the updated Figma exports.
   - [x] Update JSX/CSS to match centered composition and new artwork details.
   - [x] Validate in Chrome MCP and run `cd apps/web && npm run build`.
+
+## Current Task
+- Goal: Add JS equivalent of CRAP4J to keep complexity low and testing quality high.
+- Scope in: lint complexity gates, coverage thresholds, mutation testing setup, CI integration (soft gate).
+- Scope out: runtime behavior changes in web/worker app logic.
+- Plan:
+  - [x] Add ESLint complexity/depth/function-size rules for web + worker.
+  - [x] Add Vitest coverage thresholds and scripts in both apps.
+  - [x] Add Stryker mutation configs and scripts (opt-in + nightly CI).
+  - [x] Extend CI workflows with lint/coverage/mutation checks in soft-gate mode.
+
+## Current Task
+- Goal: Refactor `apps/web/src/App.jsx` and `apps/worker/src/index.js` into smaller, safer modules.
+- Scope in: extract pure utilities, storage/api helpers, and isolated workflow functions without changing behavior.
+- Scope out: UX redesign, API contract changes, or worker runtime behavior changes.
+- Plan:
+  - [x] Extract web helper logic from `App.jsx` into focused modules and keep component behavior identical.
+  - [x] Extract worker parsing/notification/run-alert helper logic from `index.js` into focused modules.
+  - [x] Rewire imports and keep existing endpoint behavior unchanged.
+  - [x] Run lint/tests/coverage for both apps and fix regressions.

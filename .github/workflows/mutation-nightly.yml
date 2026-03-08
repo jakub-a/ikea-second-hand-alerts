@@ -1,0 +1,33 @@
+name: Mutation Testing
+
+on:
+  schedule:
+    - cron: "45 3 * * 1"
+  workflow_dispatch:
+
+jobs:
+  worker-mutation:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+        working-directory: apps/worker
+      - run: npm run test:mutation
+        working-directory: apps/worker
+
+  web-mutation:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+        working-directory: apps/web
+      - run: npm run test:mutation
+        working-directory: apps/web

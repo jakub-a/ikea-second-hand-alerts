@@ -6,14 +6,21 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "node scripts/deploy-worker.mjs",
+    "lint": "eslint \"**/*.js\" --ignore-pattern \"dist/**\" --ignore-pattern \"coverage/**\"",
     "test": "vitest run",
     "test:unit": "vitest run test/search-utils.test.js",
     "test:integration": "vitest run test/items.integration.test.js",
     "test:notifications": "vitest run test/run-alerts.integration.test.js test/search-utils.test.js",
-    "test:all": "vitest run"
+    "test:all": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:mutation": "stryker run"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "^8.7.1",
+    "@stryker-mutator/vitest-runner": "^8.7.1",
+    "eslint": "^9.22.0",
     "vitest": "^2.1.4",
-    "wrangler": "^4.66.0"
+    "wrangler": "^4.66.0",
+    "@vitest/coverage-v8": "^2.1.4"
   }
 }
